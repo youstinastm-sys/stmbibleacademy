@@ -2761,6 +2761,17 @@ function AdminReports() {
 function AdminSettings() {
   const [classes, setClasses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [accountType, setAccountType] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [form, setForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    password: '',
+    grade: '',
+    class_id: ''
+  })
 
   useEffect(() => {
     loadSettings()
@@ -2769,13 +2780,381 @@ function AdminSettings() {
   async function loadSettings() {
     setLoading(true)
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('classes')
       .select('id, name, grade_group, active')
       .order('id')
 
+    if (error) {
+      console.error('Settings classes error:', error)
+    }
+
     setClasses(data || [])
     setLoading(false)
+  }
+
+  function openAccountForm(type) {
+    setAccountType(type)
+    setMessage('')
+    setForm({
+      first_name: '',
+      last_name: '',
+      email: '',
+      password: '',
+      grade: '',
+      class_id: ''
+    })
+  }
+
+  function closeAccountForm() {
+    if (saving) return
+    setAccountType(null)
+    setMessage('')
+  }
+
+  function updateForm(field, value) {
+    setForm((current) => ({
+      ...current,
+      [field]: value
+    }))
+    setMessage('')
+  }
+
+  async function createAccount(event) {
+    event.preventDefault()
+    setSaving(true)
+    setMessage('')
+
+    const role = accountType
+
+    if (!role) {
+      setSaving(false)
+      return
+    }
+
+    if (
+      !form.first_name.trim() ||
+      !form.last_name.trim() ||
+      !form.email.trim() ||
+      !form.password ||
+      !form.class_id
+    ) {
+      setMessage('Please complete all required fields.')
+      setSaving(false)
+      return
+    }
+
+    if (role === 'student' && !form.grade.trim()) {
+      setMessage('Please enter the student grade.')
+      setSaving(false)
+      return
+    }
+
+    if (form.password.length < 6) {
+      setMessage('The temporary password must be at least 6 characters.')
+      setSaving(false)
+      return
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'create-user',
+      {
+        body: {
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          role,
+          grade:
+            role === 'student'
+              ? form.grade.trim()
+              : null,
+          class_id: Number(form.class_id)
+        }
+      }
+    )
+
+    if (error) {
+      console.error('Create account function error:', error)
+
+      let detail = error.message
+
+      try {
+        if (error.context) {
+          const body = await error.context.json()
+          detail = body?.error || detail
+        }
+      } catch {
+        // Keep the original function error message.
+      }
+
+      setMessage(detail || 'Could not create the account.')
+      setSaving(false)
+      return
+    }
+
+    if (data?.error) {
+      setMessage(data.error)
+      setSaving(false)
+      return
+    }
+
+    setMessage(
+      role === 'student'
+        ? 'Student created successfully.'
+        : 'Servant created successfully.'
+    )
+
+    setForm({
+      first_name: '',
+      last_name: '',
+      email: '',
+      password: '',
+      grade: '',
+      class_id: ''
+    })
+
+    setSaving(false)
+  }
+
+  if (accountType) {
+    const isStudent = accountType === 'student'
+
+    return (
+      <>
+        <button
+          onClick={closeAccountForm}
+          disabled={saving}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: '0',
+            marginBottom: '18px',
+            cursor: saving ? 'default' : 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Settings
+        </button>
+
+        <DashboardHeader
+          title={isStudent ? 'Add Student' : 'Add Servant'}
+          subtitle={
+            isStudent
+              ? 'Create a student login and assign a Bible Study class'
+              : 'Create a servant login and assign a Bible Study class'
+          }
+        />
+
+        <section
+          className="dashboard-card"
+          style={{
+            marginTop: '24px',
+            maxWidth: '760px'
+          }}
+        >
+          <h2>
+            {isStudent ? 'Student Account' : 'Servant Account'}
+          </h2>
+
+          <p
+            style={{
+              color: '#6b7280',
+              marginTop: '-8px',
+              marginBottom: '22px'
+            }}
+          >
+            The email and temporary password will be used to log in
+            to Bible Study Academy.
+          </p>
+
+          <form onSubmit={createAccount}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '16px'
+              }}
+            >
+              <div>
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={form.first_name}
+                  onChange={(event) =>
+                    updateForm('first_name', event.target.value)
+                  }
+                  placeholder="First name"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={form.last_name}
+                  onChange={(event) =>
+                    updateForm('last_name', event.target.value)
+                  }
+                  placeholder="Last name"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) =>
+                    updateForm('email', event.target.value)
+                  }
+                  placeholder="student@example.com"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Temporary Password</label>
+                <input
+                  type="text"
+                  value={form.password}
+                  onChange={(event) =>
+                    updateForm('password', event.target.value)
+                  }
+                  placeholder="At least 6 characters"
+                  minLength="6"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {isStudent && (
+                <div>
+                  <label>Grade</label>
+                  <input
+                    type="text"
+                    value={form.grade}
+                    onChange={(event) =>
+                      updateForm('grade', event.target.value)
+                    }
+                    placeholder="Example: 3rd"
+                    required
+                    disabled={saving}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label>Bible Study Class</label>
+                <select
+                  value={form.class_id}
+                  onChange={(event) =>
+                    updateForm('class_id', event.target.value)
+                  }
+                  required
+                  disabled={saving || loading}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1px solid #dfe2ea',
+                    background: 'white'
+                  }}
+                >
+                  <option value="">
+                    Select a class
+                  </option>
+
+                  {classes
+                    .filter((classItem) => classItem.active)
+                    .map((classItem) => (
+                      <option
+                        key={classItem.id}
+                        value={classItem.id}
+                      >
+                        {classItem.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            {message && (
+              <div
+                style={{
+                  marginTop: '18px',
+                  padding: '12px 14px',
+                  borderRadius: '12px',
+                  background: message.includes('successfully')
+                    ? '#ecfdf3'
+                    : '#fef3f2',
+                  color: message.includes('successfully')
+                    ? '#087257'
+                    : '#b42318',
+                  fontWeight: '600'
+                }}
+              >
+                {message}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '10px',
+                marginTop: '22px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={saving || loading}
+                style={{ width: 'auto' }}
+              >
+                {saving
+                  ? 'Creating...'
+                  : isStudent
+                    ? 'Create Student'
+                    : 'Create Servant'}
+              </button>
+
+              <button
+                type="button"
+                onClick={closeAccountForm}
+                disabled={saving}
+                style={{
+                  border: '1px solid #dfe2ea',
+                  background: 'white',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  cursor: saving ? 'default' : 'pointer',
+                  fontWeight: '700'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+      </>
+    )
   }
 
   return (
@@ -2839,7 +3218,9 @@ function AdminSettings() {
                       <strong>{classItem.name}</strong>
                     </td>
                     <td>{classItem.grade_group || '—'}</td>
-                    <td>{classItem.active ? 'Active' : 'Inactive'}</td>
+                    <td>
+                      {classItem.active ? 'Active' : 'Inactive'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2852,26 +3233,34 @@ function AdminSettings() {
         <h2>Account Management</h2>
 
         <p style={{ color: '#6b7280', marginBottom: '14px' }}>
-          Admin account creation will securely create the login,
-          profile, and class assignment together.
+          Create a login, profile, and class assignment together.
         </p>
 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gridTemplateColumns:
+              'repeat(auto-fit, minmax(220px, 1fr))',
             gap: '14px'
           }}
         >
-          <div
+          <button
+            type="button"
+            onClick={() => openAccountForm('student')}
             style={{
               padding: '18px',
               border: '1px solid #ececf2',
-              borderRadius: '14px'
+              borderRadius: '14px',
+              background: 'white',
+              textAlign: 'left',
+              cursor: 'pointer',
+              font: 'inherit'
             }}
           >
             <GraduationCap size={24} />
-            <h3 style={{ marginBottom: '6px' }}>Add Student</h3>
+            <h3 style={{ marginBottom: '6px' }}>
+              Add Student
+            </h3>
             <p
               style={{
                 color: '#6b7280',
@@ -2879,20 +3268,28 @@ function AdminSettings() {
                 marginBottom: 0
               }}
             >
-              Create a student login, choose their grade, and assign
-              them to a Bible Study class.
+              Create a student login, choose their grade, and
+              assign them to a Bible Study class.
             </p>
-          </div>
+          </button>
 
-          <div
+          <button
+            type="button"
+            onClick={() => openAccountForm('servant')}
             style={{
               padding: '18px',
               border: '1px solid #ececf2',
-              borderRadius: '14px'
+              borderRadius: '14px',
+              background: 'white',
+              textAlign: 'left',
+              cursor: 'pointer',
+              font: 'inherit'
             }}
           >
             <UserRound size={24} />
-            <h3 style={{ marginBottom: '6px' }}>Add Servant</h3>
+            <h3 style={{ marginBottom: '6px' }}>
+              Add Servant
+            </h3>
             <p
               style={{
                 color: '#6b7280',
@@ -2900,28 +3297,15 @@ function AdminSettings() {
                 marginBottom: 0
               }}
             >
-              Create a servant login and assign them to their Bible
-              Study class.
+              Create a servant login and assign them to their
+              Bible Study class.
             </p>
-          </div>
+          </button>
         </div>
-
-        <p
-          style={{
-            marginTop: '16px',
-            marginBottom: 0,
-            color: '#8b5e00',
-            fontSize: '13px'
-          }}
-        >
-          The secure account-creation function is the next setup step.
-          We will not put a Supabase service-role key in this browser code.
-        </p>
       </section>
     </>
   )
 }
-
 
 function ComingSoon({ title, role }) {
   return (
