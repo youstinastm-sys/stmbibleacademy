@@ -238,6 +238,10 @@ function DashboardShell({ profile }) {
         return <AdminClasses />
       }
 
+      if (activePage === 'Students') {
+        return <AdminStudents />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -1149,6 +1153,565 @@ function AdminClasses() {
     </>
   )
 }
+
+
+function AdminStudents() {
+  const [students, setStudents] = useState([])
+  const [classes, setClasses] = useState([])
+  const [memberships, setMemberships] = useState([])
+  const [search, setSearch] = useState('')
+  const [classFilter, setClassFilter] = useState('all')
+  const [selectedStudent, setSelectedStudent] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadStudentsPage()
+  }, [])
+
+  async function loadStudentsPage() {
+    setLoading(true)
+    setMessage('')
+
+    const [
+      studentsResult,
+      classesResult,
+      membershipsResult
+    ] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, first_name, last_name, grade, active')
+        .eq('role', 'student')
+        .order('first_name'),
+
+      supabase
+        .from('classes')
+        .select('*')
+        .eq('active', true)
+        .order('id'),
+
+      supabase
+        .from('class_members')
+        .select('student_id, class_id')
+    ])
+
+    if (studentsResult.error) {
+      console.error(
+        'Students error:',
+        studentsResult.error
+      )
+    }
+
+    if (classesResult.error) {
+      console.error(
+        'Classes error:',
+        classesResult.error
+      )
+    }
+
+    if (membershipsResult.error) {
+      console.error(
+        'Memberships error:',
+        membershipsResult.error
+      )
+    }
+
+    setStudents(studentsResult.data || [])
+    setClasses(classesResult.data || [])
+    setMemberships(membershipsResult.data || [])
+    setLoading(false)
+  }
+
+  function getStudentClass(studentId) {
+    const membership = memberships.find(
+      (item) => item.student_id === studentId
+    )
+
+    if (!membership) return null
+
+    return (
+      classes.find(
+        (classItem) =>
+          classItem.id === membership.class_id
+      ) || null
+    )
+  }
+
+  async function moveStudent(
+    studentId,
+    newClassId
+  ) {
+    setSaving(true)
+    setMessage('')
+
+    const { error: deleteError } = await supabase
+      .from('class_members')
+      .delete()
+      .eq('student_id', studentId)
+
+    if (deleteError) {
+      console.error(
+        'Remove class error:',
+        deleteError
+      )
+
+      setMessage(
+        'I could not update the class assignment.'
+      )
+
+      setSaving(false)
+      return
+    }
+
+    if (newClassId !== 'none') {
+      const { error: insertError } = await supabase
+        .from('class_members')
+        .insert({
+          student_id: studentId,
+          class_id: Number(newClassId)
+        })
+
+      if (insertError) {
+        console.error(
+          'Assign class error:',
+          insertError
+        )
+
+        setMessage(
+          'The old class was removed, but the new class could not be assigned.'
+        )
+
+        setSaving(false)
+        await loadStudentsPage()
+        return
+      }
+    }
+
+    setMessage('Class assignment updated.')
+    await loadStudentsPage()
+
+    if (selectedStudent?.id === studentId) {
+      setSelectedStudent((current) => ({
+        ...current
+      }))
+    }
+
+    setSaving(false)
+  }
+
+  const visibleStudents = students.filter(
+    (student) => {
+      const fullName =
+        `${student.first_name || ''} ${student.last_name || ''}`
+          .toLowerCase()
+
+      const matchesSearch =
+        fullName.includes(search.toLowerCase()) ||
+        (student.grade || '')
+          .toLowerCase()
+          .includes(search.toLowerCase())
+
+      const studentClass =
+        getStudentClass(student.id)
+
+      const matchesClass =
+        classFilter === 'all' ||
+        String(studentClass?.id || '') ===
+          classFilter
+
+      return matchesSearch && matchesClass
+    }
+  )
+
+  if (selectedStudent) {
+    const studentClass =
+      getStudentClass(selectedStudent.id)
+
+    return (
+      <>
+        <button
+          onClick={() => {
+            setSelectedStudent(null)
+            setMessage('')
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: '0',
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Students
+        </button>
+
+        <DashboardHeader
+          title={`${selectedStudent.first_name} ${selectedStudent.last_name}`}
+          subtitle="Student profile"
+        />
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<GraduationCap />}
+            label="Class"
+            value={
+              studentClass?.name || 'Unassigned'
+            }
+            helper="Bible Study group"
+          />
+
+          <StatCard
+            icon={<BookOpen />}
+            label="Grade"
+            value={selectedStudent.grade || '—'}
+            helper="Student grade"
+          />
+
+          <StatCard
+            icon={<CheckCircle2 />}
+            label="Status"
+            value={
+              selectedStudent.active
+                ? 'Active'
+                : 'Inactive'
+            }
+            helper="Account status"
+          />
+
+          <StatCard
+            icon={<Trophy />}
+            label="Points"
+            value="—"
+            helper="Detailed points coming next"
+          />
+        </div>
+
+        <section className="dashboard-card">
+          <h2>Class Assignment</h2>
+
+          <p
+            style={{
+              color: '#6b7280',
+              marginTop: '-8px'
+            }}
+          >
+            Move this student to a different Bible
+            Study group.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}
+          >
+            <select
+              value={
+                studentClass
+                  ? String(studentClass.id)
+                  : 'none'
+              }
+              disabled={saving}
+              onChange={(event) =>
+                moveStudent(
+                  selectedStudent.id,
+                  event.target.value
+                )
+              }
+              style={{
+                minWidth: '240px',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                border: '1px solid #dfe2ea',
+                background: 'white'
+              }}
+            >
+              <option value="none">
+                Unassigned
+              </option>
+
+              {classes.map((classItem) => (
+                <option
+                  key={classItem.id}
+                  value={classItem.id}
+                >
+                  {classItem.name}
+                </option>
+              ))}
+            </select>
+
+            {saving && (
+              <span style={{ color: '#6b7280' }}>
+                Saving...
+              </span>
+            )}
+          </div>
+
+          {message && (
+            <p
+              style={{
+                marginTop: '14px',
+                color: message.includes('updated')
+                  ? '#087257'
+                  : '#b42318',
+                fontWeight: '600'
+              }}
+            >
+              {message}
+            </p>
+          )}
+        </section>
+
+        <section className="dashboard-card">
+          <h2>Progress Snapshot</h2>
+
+          <div className="progress-grid">
+            <ProgressCircle
+              label="Daily Reading"
+              value={0}
+              emoji="📖"
+            />
+
+            <ProgressCircle
+              label="Attendance"
+              value={0}
+              emoji="⛪"
+            />
+
+            <ProgressCircle
+              label="Homework"
+              value={0}
+              emoji="✏️"
+            />
+
+            <ProgressCircle
+              label="Memory Verse"
+              value={0}
+              emoji="🧠"
+            />
+
+            <ProgressCircle
+              label="Physical Bible"
+              value={0}
+              emoji="📕"
+            />
+
+            <ProgressCircle
+              label="Participation"
+              value={0}
+              emoji="⭐"
+            />
+          </div>
+
+          <p
+            style={{
+              marginTop: '20px',
+              marginBottom: 0,
+              color: '#6b7280',
+              fontSize: '13px'
+            }}
+          >
+            We will connect these percentages to
+            each student's real records when we
+            build the progress and points pages.
+          </p>
+        </section>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Students"
+        subtitle="View and manage Bible Study students"
+      />
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'minmax(220px, 1fr) minmax(180px, 260px)',
+          gap: '12px',
+          marginTop: '24px',
+          marginBottom: '18px'
+        }}
+      >
+        <input
+          type="search"
+          placeholder="Search students..."
+          value={search}
+          onChange={(event) =>
+            setSearch(event.target.value)
+          }
+          style={{
+            width: '100%',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white',
+            outline: 'none'
+          }}
+        />
+
+        <select
+          value={classFilter}
+          onChange={(event) =>
+            setClassFilter(event.target.value)
+          }
+          style={{
+            width: '100%',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white'
+          }}
+        >
+          <option value="all">
+            All Classes
+          </option>
+
+          {classes.map((classItem) => (
+            <option
+              key={classItem.id}
+              value={classItem.id}
+            >
+              {classItem.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <section className="dashboard-card">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '16px'
+          }}
+        >
+          <h2 style={{ margin: 0 }}>
+            Student Directory
+          </h2>
+
+          <span
+            style={{
+              color: '#6b7280',
+              fontSize: '13px'
+            }}
+          >
+            {visibleStudents.length}{' '}
+            {visibleStudents.length === 1
+              ? 'student'
+              : 'students'}
+          </span>
+        </div>
+
+        {loading ? (
+          <p>Loading students...</p>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Class</th>
+                  <th>Grade</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {visibleStudents.map((student) => {
+                  const studentClass =
+                    getStudentClass(student.id)
+
+                  return (
+                    <tr key={student.id}>
+                      <td>
+                        <strong>
+                          {student.first_name}{' '}
+                          {student.last_name}
+                        </strong>
+                      </td>
+
+                      <td>
+                        {studentClass?.name ||
+                          'Unassigned'}
+                      </td>
+
+                      <td>
+                        {student.grade || '—'}
+                      </td>
+
+                      <td>
+                        {student.active
+                          ? 'Active'
+                          : 'Inactive'}
+                      </td>
+
+                      <td
+                        style={{
+                          textAlign: 'right'
+                        }}
+                      >
+                        <button
+                          onClick={() =>
+                            setSelectedStudent(
+                              student
+                            )
+                          }
+                          style={{
+                            border: 'none',
+                            background:
+                              'transparent',
+                            color: '#6b35c0',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          View
+                          <ChevronRight
+                            size={17}
+                          />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {!visibleStudents.length && (
+                  <tr>
+                    <td colSpan="5">
+                      No students match these
+                      filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
 
 function ComingSoon({ title, role }) {
   return (
