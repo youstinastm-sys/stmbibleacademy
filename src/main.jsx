@@ -246,6 +246,10 @@ function DashboardShell({ profile }) {
         return <AdminServants />
       }
 
+      if (activePage === 'Points System') {
+        return <AdminPointsSystem />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2123,6 +2127,381 @@ function AdminServants() {
             </table>
           </div>
         )}
+      </section>
+    </>
+  )
+}
+
+
+function AdminPointsSystem() {
+  const [rules, setRules] = useState([])
+  const [draftPoints, setDraftPoints] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const ruleDetails = {
+    daily_reading: {
+      label: 'Daily Bible Reading',
+      description: 'Awarded for completing the assigned daily Bible reading.',
+      icon: '📖'
+    },
+    attendance: {
+      label: 'Bible Study Attendance',
+      description: 'Awarded when a student attends Friday Bible Study.',
+      icon: '⛪'
+    },
+    homework: {
+      label: 'Homework',
+      description: 'Awarded for completing the weekly Bible Study homework.',
+      icon: '✏️'
+    },
+    memory_verse: {
+      label: 'Memory Verse',
+      description: 'Awarded for completing the assigned memory verse.',
+      icon: '🧠'
+    },
+    physical_bible: {
+      label: 'Physical Bible',
+      description: 'Awarded for bringing a physical Bible to Bible Study.',
+      icon: '📕'
+    },
+    participation: {
+      label: 'Behavior & Participation',
+      description: 'Used as the guide for weekly participation points.',
+      icon: '⭐'
+    }
+  }
+
+  const preferredOrder = [
+    'daily_reading',
+    'attendance',
+    'homework',
+    'memory_verse',
+    'physical_bible',
+    'participation'
+  ]
+
+  useEffect(() => {
+    loadPointRules()
+  }, [])
+
+  async function loadPointRules() {
+    setLoading(true)
+    setMessage('')
+
+    const { data, error } = await supabase
+      .from('point_rules')
+      .select('*')
+
+    if (error) {
+      console.error('Point rules error:', error)
+      setRules([])
+      setDraftPoints({})
+      setMessage('Could not load the point rules.')
+      setLoading(false)
+      return
+    }
+
+    const loadedRules = data || []
+
+    loadedRules.sort((a, b) => {
+      const aIndex = preferredOrder.indexOf(a.category)
+      const bIndex = preferredOrder.indexOf(b.category)
+
+      if (aIndex === -1 && bIndex === -1) {
+        return String(a.category).localeCompare(String(b.category))
+      }
+
+      if (aIndex === -1) return 1
+      if (bIndex === -1) return -1
+
+      return aIndex - bIndex
+    })
+
+    const nextDraft = {}
+
+    loadedRules.forEach((rule) => {
+      nextDraft[rule.category] = rule.points ?? 0
+    })
+
+    setRules(loadedRules)
+    setDraftPoints(nextDraft)
+    setLoading(false)
+  }
+
+  function updateDraft(category, value) {
+    const numericValue =
+      value === '' ? '' : Math.max(0, Number(value))
+
+    setDraftPoints((current) => ({
+      ...current,
+      [category]: numericValue
+    }))
+
+    setMessage('')
+  }
+
+  async function savePointRules() {
+    setSaving(true)
+    setMessage('')
+
+    for (const rule of rules) {
+      const nextPoints = Number(draftPoints[rule.category])
+
+      if (
+        draftPoints[rule.category] === '' ||
+        Number.isNaN(nextPoints) ||
+        nextPoints < 0
+      ) {
+        setMessage('Every point value must be 0 or higher.')
+        setSaving(false)
+        return
+      }
+
+      const { error } = await supabase
+        .from('point_rules')
+        .update({ points: nextPoints })
+        .eq('category', rule.category)
+
+      if (error) {
+        console.error(
+          `Point rule update error for ${rule.category}:`,
+          error
+        )
+        setMessage(
+          'Could not save the point values. Please try again.'
+        )
+        setSaving(false)
+        return
+      }
+    }
+
+    await loadPointRules()
+    setMessage('Point values saved successfully.')
+    setSaving(false)
+  }
+
+  const totalStandardPoints = rules.reduce(
+    (sum, rule) =>
+      sum + (Number(draftPoints[rule.category]) || 0),
+    0
+  )
+
+  return (
+    <>
+      <DashboardHeader
+        title="Points System"
+        subtitle="Manage how students earn points in Bible Study Academy"
+      />
+
+      <div className="stats-grid">
+        <StatCard
+          icon={<Trophy />}
+          label="Point Categories"
+          value={rules.length}
+          helper="Active point rules"
+        />
+
+        <StatCard
+          icon={<Star />}
+          label="Standard Total"
+          value={totalStandardPoints}
+          helper="If every category is earned once"
+        />
+
+        <StatCard
+          icon={<ClipboardCheck />}
+          label="Bonus Points"
+          value="Manual"
+          helper="Awarded separately"
+        />
+      </div>
+
+      <section className="dashboard-card">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: '18px',
+            flexWrap: 'wrap',
+            marginBottom: '22px'
+          }}
+        >
+          <div>
+            <h2 style={{ marginBottom: '6px' }}>
+              Point Values
+            </h2>
+
+            <p
+              style={{
+                color: '#6b7280',
+                margin: 0,
+                maxWidth: '620px'
+              }}
+            >
+              Change the value for any category below. These
+              values are used when student total points are
+              calculated.
+            </p>
+          </div>
+
+          <button
+            className="primary-button small-button"
+            onClick={savePointRules}
+            disabled={saving || loading || !rules.length}
+            style={{ width: 'auto' }}
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+
+        {loading ? (
+          <p>Loading point rules...</p>
+        ) : !rules.length ? (
+          <p>No point rules were found.</p>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gap: '14px'
+            }}
+          >
+            {rules.map((rule) => {
+              const details =
+                ruleDetails[rule.category] || {
+                  label: rule.category
+                    .replaceAll('_', ' ')
+                    .replace(/\b\w/g, (letter) =>
+                      letter.toUpperCase()
+                    ),
+                  description: 'Bible Study point category.',
+                  icon: '🏆'
+                }
+
+              return (
+                <div
+                  key={rule.category}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      '52px minmax(0, 1fr) 120px',
+                    gap: '14px',
+                    alignItems: 'center',
+                    padding: '16px',
+                    border: '1px solid #ececf2',
+                    borderRadius: '14px',
+                    background: '#fff'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '12px',
+                      display: 'grid',
+                      placeItems: 'center',
+                      background: '#f5efff',
+                      fontSize: '23px'
+                    }}
+                  >
+                    {details.icon}
+                  </div>
+
+                  <div>
+                    <strong
+                      style={{
+                        display: 'block',
+                        marginBottom: '4px'
+                      }}
+                    >
+                      {details.label}
+                    </strong>
+
+                    <span
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '13px'
+                      }}
+                    >
+                      {details.description}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={draftPoints[rule.category] ?? ''}
+                      onChange={(event) =>
+                        updateDraft(
+                          rule.category,
+                          event.target.value
+                        )
+                      }
+                      style={{
+                        width: '76px',
+                        padding: '10px 10px',
+                        borderRadius: '10px',
+                        border: '1px solid #dfe2ea',
+                        textAlign: 'center',
+                        fontWeight: '700'
+                      }}
+                    />
+
+                    <span
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '13px'
+                      }}
+                    >
+                      pts
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {message && (
+          <p
+            style={{
+              marginTop: '18px',
+              marginBottom: 0,
+              color: message.includes('successfully')
+                ? '#087257'
+                : '#b42318',
+              fontWeight: '600'
+            }}
+          >
+            {message}
+          </p>
+        )}
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Bonus Points</h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            marginBottom: 0
+          }}
+        >
+          Bonus points stay flexible instead of having one fixed
+          value. Admins and servants will be able to enter the
+          amount and reason when we connect Bonus Points to Quick
+          Entry.
+        </p>
       </section>
     </>
   )
