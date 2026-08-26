@@ -13,7 +13,9 @@ import {
   CheckCircle2,
   Settings,
   UserRound,
-  BarChart3
+  BarChart3,
+  ArrowLeft,
+  ChevronRight
 } from 'lucide-react'
 
 import { supabase } from './supabase'
@@ -127,7 +129,10 @@ function App() {
     return (
       <div className="loading-screen">
         <h2>Account found, but no profile was found.</h2>
-        <p>Please make sure this user exists in the profiles table.</p>
+
+        <p>
+          Please make sure this user exists in the profiles table.
+        </p>
 
         <button
           className="primary-button small-button"
@@ -201,7 +206,9 @@ function Login() {
           />
 
           {errorMessage && (
-            <div className="error-message">{errorMessage}</div>
+            <div className="error-message">
+              {errorMessage}
+            </div>
           )}
 
           <button
@@ -219,6 +226,54 @@ function Login() {
 
 function DashboardShell({ profile }) {
   const role = profile.role
+  const [activePage, setActivePage] = useState('Dashboard')
+
+  function renderPage() {
+    if (role === 'admin') {
+      if (activePage === 'Dashboard') {
+        return <AdminDashboard />
+      }
+
+      if (activePage === 'Classes') {
+        return <AdminClasses />
+      }
+
+      return (
+        <ComingSoon
+          title={activePage}
+          role="Admin"
+        />
+      )
+    }
+
+    if (role === 'servant') {
+      if (activePage === 'Dashboard') {
+        return <ServantDashboard profile={profile} />
+      }
+
+      return (
+        <ComingSoon
+          title={activePage}
+          role="Servant"
+        />
+      )
+    }
+
+    if (role === 'student') {
+      if (activePage === 'Dashboard') {
+        return <StudentDashboard profile={profile} />
+      }
+
+      return (
+        <ComingSoon
+          title={activePage}
+          role="Student"
+        />
+      )
+    }
+
+    return null
+  }
 
   return (
     <div className={`app-layout ${role}`}>
@@ -235,10 +290,13 @@ function DashboardShell({ profile }) {
         </div>
 
         <nav className="sidebar-nav">
-          {navigation[role]?.map(([label, Icon], index) => (
+          {navigation[role]?.map(([label, Icon]) => (
             <button
               key={label}
-              className={index === 0 ? 'active' : ''}
+              className={
+                activePage === label ? 'active' : ''
+              }
+              onClick={() => setActivePage(label)}
             >
               <Icon size={18} />
               <span>{label}</span>
@@ -270,17 +328,7 @@ function DashboardShell({ profile }) {
       </aside>
 
       <main className="dashboard-main">
-        {role === 'student' && (
-          <StudentDashboard profile={profile} />
-        )}
-
-        {role === 'servant' && (
-          <ServantDashboard profile={profile} />
-        )}
-
-        {role === 'admin' && (
-          <AdminDashboard profile={profile} />
-        )}
+        {renderPage()}
       </main>
     </div>
   )
@@ -374,14 +422,24 @@ function StudentDashboard({ profile }) {
 
     const percentage = (complete, total) => {
       if (!total) return 0
+
       return Math.round((complete / total) * 100)
     }
 
-    const attendanceCompleted = countTrue(attendance, 'present')
-    const readingCompleted = countTrue(reading, 'completed')
-    const homeworkCompleted = countTrue(homework, 'completed')
-    const verseCompleted = countTrue(verses, 'completed')
-    const bibleCompleted = countTrue(physicalBible, 'brought_bible')
+    const attendanceCompleted =
+      countTrue(attendance, 'present')
+
+    const readingCompleted =
+      countTrue(reading, 'completed')
+
+    const homeworkCompleted =
+      countTrue(homework, 'completed')
+
+    const verseCompleted =
+      countTrue(verses, 'completed')
+
+    const bibleCompleted =
+      countTrue(physicalBible, 'brought_bible')
 
     const participationPoints = participation.reduce(
       (sum, record) => sum + (record.points || 0),
@@ -394,11 +452,16 @@ function StudentDashboard({ profile }) {
     )
 
     const totalPoints =
-      attendanceCompleted * (pointRules.attendance || 0) +
-      readingCompleted * (pointRules.daily_reading || 0) +
-      homeworkCompleted * (pointRules.homework || 0) +
-      verseCompleted * (pointRules.memory_verse || 0) +
-      bibleCompleted * (pointRules.physical_bible || 0) +
+      attendanceCompleted *
+        (pointRules.attendance || 0) +
+      readingCompleted *
+        (pointRules.daily_reading || 0) +
+      homeworkCompleted *
+        (pointRules.homework || 0) +
+      verseCompleted *
+        (pointRules.memory_verse || 0) +
+      bibleCompleted *
+        (pointRules.physical_bible || 0) +
       participationPoints +
       bonusPoints
 
@@ -451,7 +514,8 @@ function StudentDashboard({ profile }) {
       />
 
       <div className="scripture-banner">
-        “I have hidden your word in my heart that I might not sin against you.”
+        “I have hidden your word in my heart that I might
+        not sin against you.”
         <strong> Psalm 119:11</strong>
       </div>
 
@@ -530,8 +594,10 @@ function StudentDashboard({ profile }) {
       <section className="dashboard-card weekly-goal">
         <div>
           <h3>This Week's Goal</h3>
+
           <p>
-            Complete your daily Bible reading and keep building your progress.
+            Complete your daily Bible reading and keep
+            building your progress.
           </p>
         </div>
 
@@ -542,7 +608,9 @@ function StudentDashboard({ profile }) {
 }
 
 function ServantDashboard({ profile }) {
-  const [className, setClassName] = useState('My Bible Study Class')
+  const [className, setClassName] =
+    useState('My Bible Study Class')
+
   const [students, setStudents] = useState([])
 
   useEffect(() => {
@@ -575,7 +643,9 @@ function ServantDashboard({ profile }) {
       .eq('class_id', assignment.class_id)
 
     const studentIds =
-      memberships?.map((membership) => membership.student_id) || []
+      memberships?.map(
+        (membership) => membership.student_id
+      ) || []
 
     if (!studentIds.length) {
       setStudents([])
@@ -648,7 +718,8 @@ function ServantDashboard({ profile }) {
                 <tr key={student.id}>
                   <td>
                     <strong>
-                      {student.first_name} {student.last_name}
+                      {student.first_name}{' '}
+                      {student.last_name}
                     </strong>
                   </td>
 
@@ -663,7 +734,8 @@ function ServantDashboard({ profile }) {
               {!students.length && (
                 <tr>
                   <td colSpan="6">
-                    No students are assigned to this class yet.
+                    No students are assigned to this class
+                    yet.
                   </td>
                 </tr>
               )}
@@ -685,16 +757,17 @@ function AdminDashboard() {
   }, [])
 
   async function loadAdminData() {
-    const [classesResult, profilesResult] = await Promise.all([
-      supabase
-        .from('classes')
-        .select('*')
-        .eq('active', true),
+    const [classesResult, profilesResult] =
+      await Promise.all([
+        supabase
+          .from('classes')
+          .select('*')
+          .eq('active', true),
 
-      supabase
-        .from('profiles')
-        .select('role')
-    ])
+        supabase
+          .from('profiles')
+          .select('role')
+      ])
 
     const classData = classesResult.data || []
     const profiles = profilesResult.data || []
@@ -702,11 +775,15 @@ function AdminDashboard() {
     setClasses(classData)
 
     setStudents(
-      profiles.filter((profile) => profile.role === 'student').length
+      profiles.filter(
+        (profile) => profile.role === 'student'
+      ).length
     )
 
     setServants(
-      profiles.filter((profile) => profile.role === 'servant').length
+      profiles.filter(
+        (profile) => profile.role === 'servant'
+      ).length
     )
   }
 
@@ -752,7 +829,10 @@ function AdminDashboard() {
 
         <div className="classes-grid">
           {classes.map((classItem) => (
-            <div className="class-card" key={classItem.id}>
+            <div
+              className="class-card"
+              key={classItem.id}
+            >
               <div className="class-icon">
                 <BookOpen size={22} />
               </div>
@@ -769,6 +849,349 @@ function AdminDashboard() {
   )
 }
 
+function AdminClasses() {
+  const [classes, setClasses] = useState([])
+  const [selectedClass, setSelectedClass] = useState(null)
+  const [students, setStudents] = useState([])
+  const [servants, setServants] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [detailLoading, setDetailLoading] =
+    useState(false)
+
+  useEffect(() => {
+    loadClasses()
+  }, [])
+
+  async function loadClasses() {
+    setLoading(true)
+
+    const { data, error } = await supabase
+      .from('classes')
+      .select('*')
+      .eq('active', true)
+      .order('id')
+
+    if (error) {
+      console.error('Classes error:', error)
+    }
+
+    setClasses(data || [])
+    setLoading(false)
+  }
+
+  async function openClass(classItem) {
+    setSelectedClass(classItem)
+    setDetailLoading(true)
+    setStudents([])
+    setServants([])
+
+    const [
+      studentMembershipsResult,
+      servantMembershipsResult
+    ] = await Promise.all([
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', classItem.id),
+
+      supabase
+        .from('servant_classes')
+        .select('servant_id')
+        .eq('class_id', classItem.id)
+    ])
+
+    const studentIds =
+      studentMembershipsResult.data?.map(
+        (record) => record.student_id
+      ) || []
+
+    const servantIds =
+      servantMembershipsResult.data?.map(
+        (record) => record.servant_id
+      ) || []
+
+    if (studentIds.length) {
+      const { data: studentProfiles } = await supabase
+        .from('profiles')
+        .select(
+          'id, first_name, last_name, grade, active'
+        )
+        .in('id', studentIds)
+        .order('first_name')
+
+      setStudents(studentProfiles || [])
+    }
+
+    if (servantIds.length) {
+      const { data: servantProfiles } = await supabase
+        .from('profiles')
+        .select(
+          'id, first_name, last_name, active'
+        )
+        .in('id', servantIds)
+        .order('first_name')
+
+      setServants(servantProfiles || [])
+    }
+
+    setDetailLoading(false)
+  }
+
+  if (selectedClass) {
+    return (
+      <>
+        <button
+          onClick={() => setSelectedClass(null)}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: '0',
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Classes
+        </button>
+
+        <DashboardHeader
+          title={selectedClass.name}
+          subtitle={
+            selectedClass.grade_group ||
+            'Bible Study class'
+          }
+        />
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<GraduationCap />}
+            label="Students"
+            value={students.length}
+            helper="Assigned students"
+          />
+
+          <StatCard
+            icon={<UserRound />}
+            label="Servants"
+            value={servants.length}
+            helper="Assigned servants"
+          />
+
+          <StatCard
+            icon={<CheckCircle2 />}
+            label="Attendance"
+            value="—"
+            helper="Coming soon"
+          />
+
+          <StatCard
+            icon={<Trophy />}
+            label="Class Points"
+            value="—"
+            helper="Coming soon"
+          />
+        </div>
+
+        {detailLoading ? (
+          <section className="dashboard-card">
+            <p>Loading class...</p>
+          </section>
+        ) : (
+          <>
+            <section className="dashboard-card">
+              <h2>Students</h2>
+
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Grade</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {students.map((student) => (
+                      <tr key={student.id}>
+                        <td>
+                          <strong>
+                            {student.first_name}{' '}
+                            {student.last_name}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {student.grade || '—'}
+                        </td>
+
+                        <td>
+                          {student.active
+                            ? 'Active'
+                            : 'Inactive'}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {!students.length && (
+                      <tr>
+                        <td colSpan="3">
+                          No students are assigned to this
+                          class yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="dashboard-card">
+              <h2>Servants</h2>
+
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {servants.map((servant) => (
+                      <tr key={servant.id}>
+                        <td>
+                          <strong>
+                            {servant.first_name}{' '}
+                            {servant.last_name}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {servant.active
+                            ? 'Active'
+                            : 'Inactive'}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {!servants.length && (
+                      <tr>
+                        <td colSpan="2">
+                          No servants are assigned to this
+                          class yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Classes"
+        subtitle="Manage Bible Study groups and view class rosters"
+      />
+
+      <div style={{ marginTop: '24px' }}>
+        {loading ? (
+          <section className="dashboard-card">
+            <p>Loading classes...</p>
+          </section>
+        ) : (
+          <div className="classes-grid">
+            {classes.map((classItem) => (
+              <button
+                key={classItem.id}
+                className="class-card"
+                onClick={() => openClass(classItem)}
+                style={{
+                  width: '100%',
+                  background: 'white',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                <div className="class-icon">
+                  <BookOpen size={22} />
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <strong>{classItem.name}</strong>
+
+                  <span>
+                    {classItem.grade_group}
+                  </span>
+                </div>
+
+                <ChevronRight
+                  size={20}
+                  color="#8b90a1"
+                />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function ComingSoon({ title, role }) {
+  return (
+    <>
+      <DashboardHeader
+        title={title}
+        subtitle={`${role} tools`}
+      />
+
+      <section
+        className="dashboard-card"
+        style={{
+          marginTop: '24px',
+          textAlign: 'center',
+          padding: '60px 25px'
+        }}
+      >
+        <div
+          style={{
+            fontSize: '44px',
+            marginBottom: '12px'
+          }}
+        >
+          🚧
+        </div>
+
+        <h2 style={{ marginBottom: '8px' }}>
+          {title}
+        </h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            margin: 0
+          }}
+        >
+          We're building this section next.
+        </p>
+      </section>
+    </>
+  )
+}
+
 function DashboardHeader({ title, subtitle }) {
   return (
     <header className="dashboard-header">
@@ -778,10 +1201,17 @@ function DashboardHeader({ title, subtitle }) {
   )
 }
 
-function StatCard({ icon, label, value, helper }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  helper
+}) {
   return (
     <div className="stat-card">
-      <div className="stat-icon">{icon}</div>
+      <div className="stat-icon">
+        {icon}
+      </div>
 
       <div>
         <span>{label}</span>
@@ -792,8 +1222,16 @@ function StatCard({ icon, label, value, helper }) {
   )
 }
 
-function ProgressCircle({ label, value, emoji }) {
-  const degrees = Math.min(100, Math.max(0, value)) * 3.6
+function ProgressCircle({
+  label,
+  value,
+  emoji
+}) {
+  const degrees =
+    Math.min(
+      100,
+      Math.max(0, value)
+    ) * 3.6
 
   return (
     <div className="progress-item">
@@ -812,14 +1250,22 @@ function ProgressCircle({ label, value, emoji }) {
         </div>
       </div>
 
-      <strong className="progress-label">{label}</strong>
+      <strong className="progress-label">
+        {label}
+      </strong>
     </div>
   )
 }
 
 function capitalize(value) {
   if (!value) return ''
-  return value.charAt(0).toUpperCase() + value.slice(1)
+
+  return (
+    value.charAt(0).toUpperCase() +
+    value.slice(1)
+  )
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(
+  document.getElementById('root')
+).render(<App />)
