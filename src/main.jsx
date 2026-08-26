@@ -242,6 +242,10 @@ function DashboardShell({ profile }) {
         return <AdminStudents />
       }
 
+      if (activePage === 'Servants') {
+        return <AdminServants />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -1700,6 +1704,418 @@ function AdminStudents() {
                     <td colSpan="5">
                       No students match these
                       filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+
+function AdminServants() {
+  const [servants, setServants] = useState([])
+  const [classes, setClasses] = useState([])
+  const [assignments, setAssignments] = useState([])
+  const [selectedServant, setSelectedServant] = useState(null)
+  const [search, setSearch] = useState('')
+  const [classFilter, setClassFilter] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadServants()
+  }, [])
+
+  async function loadServants() {
+    setLoading(true)
+
+    const [servantsResult, classesResult, assignmentsResult] =
+      await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, first_name, last_name, active')
+          .eq('role', 'servant')
+          .order('first_name'),
+
+        supabase
+          .from('classes')
+          .select('id, name, grade_group, active')
+          .eq('active', true)
+          .order('id'),
+
+        supabase
+          .from('servant_classes')
+          .select('servant_id, class_id')
+      ])
+
+    if (servantsResult.error) {
+      console.error('Servants error:', servantsResult.error)
+    }
+
+    if (classesResult.error) {
+      console.error('Classes error:', classesResult.error)
+    }
+
+    if (assignmentsResult.error) {
+      console.error(
+        'Servant assignments error:',
+        assignmentsResult.error
+      )
+    }
+
+    setServants(servantsResult.data || [])
+    setClasses(classesResult.data || [])
+    setAssignments(assignmentsResult.data || [])
+    setLoading(false)
+  }
+
+  function getAssignedClass(servantId) {
+    const assignment = assignments.find(
+      (item) => item.servant_id === servantId
+    )
+
+    if (!assignment) return null
+
+    return (
+      classes.find(
+        (classItem) => classItem.id === assignment.class_id
+      ) || null
+    )
+  }
+
+  async function changeServantClass(servantId, newClassId) {
+    setSaving(true)
+    setMessage('')
+
+    const { error: removeError } = await supabase
+      .from('servant_classes')
+      .delete()
+      .eq('servant_id', servantId)
+
+    if (removeError) {
+      console.error('Remove servant class error:', removeError)
+      setMessage('Could not change the class assignment.')
+      setSaving(false)
+      return
+    }
+
+    if (newClassId !== 'none') {
+      const { error: addError } = await supabase
+        .from('servant_classes')
+        .insert({
+          servant_id: servantId,
+          class_id: Number(newClassId)
+        })
+
+      if (addError) {
+        console.error('Assign servant class error:', addError)
+        setMessage(
+          'The old assignment was removed, but the new class could not be saved.'
+        )
+        await loadServants()
+        setSaving(false)
+        return
+      }
+    }
+
+    await loadServants()
+    setMessage('Class assignment updated.')
+    setSaving(false)
+  }
+
+  const visibleServants = servants.filter((servant) => {
+    const name =
+      `${servant.first_name || ''} ${servant.last_name || ''}`
+        .toLowerCase()
+
+    const matchesSearch =
+      name.includes(search.toLowerCase())
+
+    const assignedClass = getAssignedClass(servant.id)
+
+    const matchesClass =
+      classFilter === 'all' ||
+      (classFilter === 'unassigned' && !assignedClass) ||
+      String(assignedClass?.id || '') === classFilter
+
+    return matchesSearch && matchesClass
+  })
+
+  if (selectedServant) {
+    const assignedClass = getAssignedClass(selectedServant.id)
+
+    return (
+      <>
+        <button
+          onClick={() => {
+            setSelectedServant(null)
+            setMessage('')
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: '0',
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Servants
+        </button>
+
+        <DashboardHeader
+          title={`${selectedServant.first_name} ${selectedServant.last_name}`}
+          subtitle="Servant profile"
+        />
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<Users />}
+            label="Assigned Class"
+            value={assignedClass?.name || 'Unassigned'}
+            helper="Bible Study group"
+          />
+
+          <StatCard
+            icon={<CheckCircle2 />}
+            label="Status"
+            value={selectedServant.active ? 'Active' : 'Inactive'}
+            helper="Account status"
+          />
+        </div>
+
+        <section className="dashboard-card">
+          <h2>Class Assignment</h2>
+
+          <p
+            style={{
+              color: '#6b7280',
+              marginTop: '-8px'
+            }}
+          >
+            Choose the Bible Study group this servant serves.
+          </p>
+
+          <select
+            value={
+              assignedClass
+                ? String(assignedClass.id)
+                : 'none'
+            }
+            disabled={saving}
+            onChange={(event) =>
+              changeServantClass(
+                selectedServant.id,
+                event.target.value
+              )
+            }
+            style={{
+              minWidth: '260px',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              border: '1px solid #dfe2ea',
+              background: 'white'
+            }}
+          >
+            <option value="none">Unassigned</option>
+
+            {classes.map((classItem) => (
+              <option
+                key={classItem.id}
+                value={classItem.id}
+              >
+                {classItem.name}
+              </option>
+            ))}
+          </select>
+
+          {saving && (
+            <p style={{ color: '#6b7280' }}>
+              Saving...
+            </p>
+          )}
+
+          {message && (
+            <p
+              style={{
+                color: message.includes('updated')
+                  ? '#087257'
+                  : '#b42318',
+                fontWeight: '600'
+              }}
+            >
+              {message}
+            </p>
+          )}
+        </section>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Servants"
+        subtitle="View and manage Bible Study servants"
+      />
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'minmax(220px, 1fr) minmax(180px, 260px)',
+          gap: '12px',
+          marginTop: '24px',
+          marginBottom: '18px'
+        }}
+      >
+        <input
+          type="search"
+          placeholder="Search servants..."
+          value={search}
+          onChange={(event) =>
+            setSearch(event.target.value)
+          }
+          style={{
+            width: '100%',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white',
+            outline: 'none'
+          }}
+        />
+
+        <select
+          value={classFilter}
+          onChange={(event) =>
+            setClassFilter(event.target.value)
+          }
+          style={{
+            width: '100%',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white'
+          }}
+        >
+          <option value="all">All Classes</option>
+          <option value="unassigned">Unassigned</option>
+
+          {classes.map((classItem) => (
+            <option
+              key={classItem.id}
+              value={classItem.id}
+            >
+              {classItem.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <section className="dashboard-card">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '16px'
+          }}
+        >
+          <h2 style={{ margin: 0 }}>
+            Servant Directory
+          </h2>
+
+          <span
+            style={{
+              color: '#6b7280',
+              fontSize: '13px'
+            }}
+          >
+            {visibleServants.length}{' '}
+            {visibleServants.length === 1
+              ? 'servant'
+              : 'servants'}
+          </span>
+        </div>
+
+        {loading ? (
+          <p>Loading servants...</p>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Assigned Class</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {visibleServants.map((servant) => {
+                  const assignedClass =
+                    getAssignedClass(servant.id)
+
+                  return (
+                    <tr key={servant.id}>
+                      <td>
+                        <strong>
+                          {servant.first_name}{' '}
+                          {servant.last_name}
+                        </strong>
+                      </td>
+
+                      <td>
+                        {assignedClass?.name || 'Unassigned'}
+                      </td>
+
+                      <td>
+                        {servant.active ? 'Active' : 'Inactive'}
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() => {
+                            setSelectedServant(servant)
+                            setMessage('')
+                          }}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#6b35c0',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          View
+                          <ChevronRight size={17} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {!visibleServants.length && (
+                  <tr>
+                    <td colSpan="4">
+                      No servants match these filters.
                     </td>
                   </tr>
                 )}
