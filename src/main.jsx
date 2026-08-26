@@ -250,6 +250,14 @@ function DashboardShell({ profile }) {
         return <AdminPointsSystem />
       }
 
+      if (activePage === 'Reports') {
+        return <AdminReports />
+      }
+
+      if (activePage === 'Settings') {
+        return <AdminSettings />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2501,6 +2509,413 @@ function AdminPointsSystem() {
           value. Admins and servants will be able to enter the
           amount and reason when we connect Bonus Points to Quick
           Entry.
+        </p>
+      </section>
+    </>
+  )
+}
+
+
+function AdminReports() {
+  const [classes, setClasses] = useState([])
+  const [students, setStudents] = useState([])
+  const [memberships, setMemberships] = useState([])
+  const [attendance, setAttendance] = useState([])
+  const [reading, setReading] = useState([])
+  const [homework, setHomework] = useState([])
+  const [verses, setVerses] = useState([])
+  const [bibles, setBibles] = useState([])
+  const [participation, setParticipation] = useState([])
+  const [bonus, setBonus] = useState([])
+  const [rules, setRules] = useState([])
+  const [classFilter, setClassFilter] = useState('all')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadReports()
+  }, [])
+
+  async function loadReports() {
+    setLoading(true)
+
+    const results = await Promise.all([
+      supabase.from('classes').select('id, name').eq('active', true).order('id'),
+      supabase.from('profiles').select('id, first_name, last_name').eq('role', 'student').eq('active', true),
+      supabase.from('class_members').select('student_id, class_id'),
+      supabase.from('attendance').select('*'),
+      supabase.from('daily_reading').select('*'),
+      supabase.from('homework').select('*'),
+      supabase.from('memory_verses').select('*'),
+      supabase.from('physical_bible').select('*'),
+      supabase.from('participation').select('*'),
+      supabase.from('bonus_points').select('*'),
+      supabase.from('point_rules').select('*')
+    ])
+
+    setClasses(results[0].data || [])
+    setStudents(results[1].data || [])
+    setMemberships(results[2].data || [])
+    setAttendance(results[3].data || [])
+    setReading(results[4].data || [])
+    setHomework(results[5].data || [])
+    setVerses(results[6].data || [])
+    setBibles(results[7].data || [])
+    setParticipation(results[8].data || [])
+    setBonus(results[9].data || [])
+    setRules(results[10].data || [])
+    setLoading(false)
+  }
+
+  const studentIds =
+    classFilter === 'all'
+      ? students.map((student) => student.id)
+      : memberships
+          .filter((item) => String(item.class_id) === classFilter)
+          .map((item) => item.student_id)
+
+  const filteredStudents = students.filter((student) =>
+    studentIds.includes(student.id)
+  )
+
+  const onlyStudents = (records) =>
+    records.filter((record) => studentIds.includes(record.student_id))
+
+  const percentage = (records, field) => {
+    const filtered = onlyStudents(records)
+    if (!filtered.length) return 0
+    const complete = filtered.filter((record) => record[field] === true).length
+    return Math.round((complete / filtered.length) * 100)
+  }
+
+  const pointRules = {}
+  rules.forEach((rule) => {
+    pointRules[rule.category] = Number(rule.points) || 0
+  })
+
+  function studentPoints(studentId) {
+    const countTrue = (records, field) =>
+      records.filter(
+        (record) =>
+          record.student_id === studentId &&
+          record[field] === true
+      ).length
+
+    return (
+      countTrue(attendance, 'present') * (pointRules.attendance || 0) +
+      countTrue(reading, 'completed') * (pointRules.daily_reading || 0) +
+      countTrue(homework, 'completed') * (pointRules.homework || 0) +
+      countTrue(verses, 'completed') * (pointRules.memory_verse || 0) +
+      countTrue(bibles, 'brought_bible') * (pointRules.physical_bible || 0) +
+      participation
+        .filter((record) => record.student_id === studentId)
+        .reduce((sum, record) => sum + (Number(record.points) || 0), 0) +
+      bonus
+        .filter((record) => record.student_id === studentId)
+        .reduce((sum, record) => sum + (Number(record.points) || 0), 0)
+    )
+  }
+
+  const leaderboard = filteredStudents
+    .map((student) => ({
+      ...student,
+      points: studentPoints(student.id)
+    }))
+    .sort((a, b) => b.points - a.points)
+
+  const totalPoints = leaderboard.reduce(
+    (sum, student) => sum + student.points,
+    0
+  )
+
+  return (
+    <>
+      <DashboardHeader
+        title="Reports"
+        subtitle="See Bible Study progress across the academy"
+      />
+
+      <div style={{ marginTop: '24px', marginBottom: '18px' }}>
+        <select
+          value={classFilter}
+          onChange={(event) => setClassFilter(event.target.value)}
+          style={{
+            minWidth: '260px',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white'
+          }}
+        >
+          <option value="all">All Classes</option>
+          {classes.map((classItem) => (
+            <option key={classItem.id} value={classItem.id}>
+              {classItem.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading reports...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={filteredStudents.length}
+              helper="In this report"
+            />
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Attendance"
+              value={`${percentage(attendance, 'present')}%`}
+              helper="Overall completion"
+            />
+            <StatCard
+              icon={<BookOpen />}
+              label="Daily Reading"
+              value={`${percentage(reading, 'completed')}%`}
+              helper="Overall completion"
+            />
+            <StatCard
+              icon={<Trophy />}
+              label="Points Awarded"
+              value={totalPoints}
+              helper="All recorded points"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Academy Progress</h2>
+            <div className="progress-grid">
+              <ProgressCircle
+                label="Daily Reading"
+                value={percentage(reading, 'completed')}
+                emoji="📖"
+              />
+              <ProgressCircle
+                label="Attendance"
+                value={percentage(attendance, 'present')}
+                emoji="⛪"
+              />
+              <ProgressCircle
+                label="Homework"
+                value={percentage(homework, 'completed')}
+                emoji="✏️"
+              />
+              <ProgressCircle
+                label="Memory Verse"
+                value={percentage(verses, 'completed')}
+                emoji="🧠"
+              />
+              <ProgressCircle
+                label="Physical Bible"
+                value={percentage(bibles, 'brought_bible')}
+                emoji="📕"
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Points Leaderboard</h2>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Student</th>
+                    <th>Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaderboard.map((student, index) => (
+                    <tr key={student.id}>
+                      <td>#{index + 1}</td>
+                      <td>
+                        <strong>
+                          {student.first_name} {student.last_name}
+                        </strong>
+                      </td>
+                      <td>{student.points}</td>
+                    </tr>
+                  ))}
+                  {!leaderboard.length && (
+                    <tr>
+                      <td colSpan="3">No students found for this report.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+function AdminSettings() {
+  const [classes, setClasses] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadSettings()
+  }, [])
+
+  async function loadSettings() {
+    setLoading(true)
+
+    const { data } = await supabase
+      .from('classes')
+      .select('id, name, grade_group, active')
+      .order('id')
+
+    setClasses(data || [])
+    setLoading(false)
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Settings"
+        subtitle="Manage Bible Study Academy"
+      />
+
+      <section className="dashboard-card" style={{ marginTop: '24px' }}>
+        <h2>Academy</h2>
+
+        <div
+          style={{
+            display: 'grid',
+            gap: '14px',
+            maxWidth: '620px'
+          }}
+        >
+          <div
+            style={{
+              padding: '16px',
+              border: '1px solid #ececf2',
+              borderRadius: '14px'
+            }}
+          >
+            <strong>Bible Study Academy</strong>
+            <p
+              style={{
+                margin: '5px 0 0',
+                color: '#6b7280',
+                fontSize: '13px'
+              }}
+            >
+              General academy settings will live here as we add
+              school-year, leaderboard, achievement, and reading controls.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Class Management</h2>
+
+        {loading ? (
+          <p>Loading classes...</p>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  <th>Grade Group</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classes.map((classItem) => (
+                  <tr key={classItem.id}>
+                    <td>
+                      <strong>{classItem.name}</strong>
+                    </td>
+                    <td>{classItem.grade_group || '—'}</td>
+                    <td>{classItem.active ? 'Active' : 'Inactive'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Account Management</h2>
+
+        <p style={{ color: '#6b7280', marginBottom: '14px' }}>
+          Admin account creation will securely create the login,
+          profile, and class assignment together.
+        </p>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px'
+          }}
+        >
+          <div
+            style={{
+              padding: '18px',
+              border: '1px solid #ececf2',
+              borderRadius: '14px'
+            }}
+          >
+            <GraduationCap size={24} />
+            <h3 style={{ marginBottom: '6px' }}>Add Student</h3>
+            <p
+              style={{
+                color: '#6b7280',
+                fontSize: '13px',
+                marginBottom: 0
+              }}
+            >
+              Create a student login, choose their grade, and assign
+              them to a Bible Study class.
+            </p>
+          </div>
+
+          <div
+            style={{
+              padding: '18px',
+              border: '1px solid #ececf2',
+              borderRadius: '14px'
+            }}
+          >
+            <UserRound size={24} />
+            <h3 style={{ marginBottom: '6px' }}>Add Servant</h3>
+            <p
+              style={{
+                color: '#6b7280',
+                fontSize: '13px',
+                marginBottom: 0
+              }}
+            >
+              Create a servant login and assign them to their Bible
+              Study class.
+            </p>
+          </div>
+        </div>
+
+        <p
+          style={{
+            marginTop: '16px',
+            marginBottom: 0,
+            color: '#8b5e00',
+            fontSize: '13px'
+          }}
+        >
+          The secure account-creation function is the next setup step.
+          We will not put a Supabase service-role key in this browser code.
         </p>
       </section>
     </>
