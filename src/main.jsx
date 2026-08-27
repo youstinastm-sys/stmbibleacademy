@@ -271,6 +271,10 @@ function DashboardShell({ profile }) {
         return <ServantDashboard profile={profile} />
       }
 
+      if (activePage === 'My Class') {
+        return <ServantMyClass profile={profile} />
+      }
+
       if (activePage === 'Quick Entry') {
         return <ServantQuickEntry profile={profile} />
       }
@@ -767,6 +771,242 @@ function ServantDashboard({ profile }) {
           </table>
         </div>
       </section>
+    </>
+  )
+}
+
+
+
+function ServantMyClass({ profile }) {
+  const [classInfo, setClassInfo] = useState(null)
+  const [students, setStudents] = useState([])
+  const [studentStats, setStudentStats] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadMyClass()
+  }, [])
+
+  async function loadMyClass() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    const [classResult, membershipsResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('*')
+        .eq('id', assignment.class_id)
+        .single(),
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignment.class_id)
+    ])
+
+    if (classResult.error || membershipsResult.error) {
+      setMessage(
+        classResult.error?.message ||
+        membershipsResult.error?.message
+      )
+      setLoading(false)
+      return
+    }
+
+    setClassInfo(classResult.data)
+
+    const studentIds =
+      membershipsResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setStudentStats({})
+      setLoading(false)
+      return
+    }
+
+    const { data: roster, error: rosterError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, grade, active')
+      .in('id', studentIds)
+      .eq('active', true)
+      .order('first_name')
+
+    if (rosterError) {
+      setMessage(rosterError.message)
+      setLoading(false)
+      return
+    }
+
+    const activeStudents = roster || []
+    setStudents(activeStudents)
+    const ids = activeStudents.map((student) => student.id)
+
+    const [attendanceResult, readingResult, homeworkResult, verseResult, bibleResult, participationResult, bonusResult, rulesResult] =
+      await Promise.all([
+        supabase.from('attendance').select('student_id, present').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('daily_reading').select('student_id, completed').in('student_id', ids),
+        supabase.from('homework').select('student_id, completed').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('memory_verses').select('student_id, completed').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('physical_bible').select('student_id, brought_bible').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('participation').select('student_id, points').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('bonus_points').select('student_id, points').eq('class_id', assignment.class_id).in('student_id', ids),
+        supabase.from('point_rules').select('category, points')
+      ])
+
+    const results = [attendanceResult, readingResult, homeworkResult, verseResult, bibleResult, participationResult, bonusResult, rulesResult]
+    const firstError = results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    const rules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      rules[rule.category] = Number(rule.points) || 0
+    })
+
+    const stats = {}
+    activeStudents.forEach((student) => {
+      const filter = (result) =>
+        (result.data || []).filter((r) => r.student_id === student.id)
+
+      const attendance = filter(attendanceResult)
+      const reading = filter(readingResult)
+      const homework = filter(homeworkResult)
+      const verses = filter(verseResult)
+      const bibles = filter(bibleResult)
+      const participation = filter(participationResult)
+      const bonuses = filter(bonusResult)
+
+      const countTrue = (items, field) =>
+        items.filter((item) => item[field] === true).length
+      const percent = (items, field) =>
+        items.length ? Math.round((countTrue(items, field) / items.length) * 100) : 0
+
+      const attendanceDone = countTrue(attendance, 'present')
+      const readingDone = countTrue(reading, 'completed')
+      const homeworkDone = countTrue(homework, 'completed')
+      const verseDone = countTrue(verses, 'completed')
+      const bibleDone = countTrue(bibles, 'brought_bible')
+      const participationPoints = participation.reduce((sum, r) => sum + (Number(r.points) || 0), 0)
+      const bonusPoints = bonuses.reduce((sum, r) => sum + (Number(r.points) || 0), 0)
+
+      stats[student.id] = {
+        attendance: percent(attendance, 'present'),
+        reading: percent(reading, 'completed'),
+        homework: percent(homework, 'completed'),
+        verse: percent(verses, 'completed'),
+        physicalBible: percent(bibles, 'brought_bible'),
+        points:
+          attendanceDone * (rules.attendance || 0) +
+          readingDone * (rules.daily_reading || 0) +
+          homeworkDone * (rules.homework || 0) +
+          verseDone * (rules.memory_verse || 0) +
+          bibleDone * (rules.physical_bible || 0) +
+          participationPoints +
+          bonusPoints
+      }
+    })
+
+    setStudentStats(stats)
+    setLoading(false)
+  }
+
+  const average = (field) =>
+    students.length
+      ? Math.round(students.reduce((sum, s) => sum + (studentStats[s.id]?.[field] || 0), 0) / students.length)
+      : 0
+
+  const classAttendance = average('attendance')
+  const classReading = average('reading')
+  const classHomework = average('homework')
+  const totalPoints = students.reduce((sum, s) => sum + (studentStats[s.id]?.points || 0), 0)
+
+  return (
+    <>
+      <DashboardHeader
+        title={classInfo?.name || 'My Class'}
+        subtitle={classInfo?.grade_group ? `${classInfo.grade_group} • Class overview` : 'Your Bible Study class overview'}
+      />
+
+      {message && <section className="dashboard-card"><p>{message}</p></section>}
+
+      {loading ? (
+        <section className="dashboard-card"><p>Loading your class...</p></section>
+      ) : classInfo ? (
+        <>
+          <div className="stats-grid">
+            <StatCard icon={<Users />} label="Students" value={students.length} helper="Active students" />
+            <StatCard icon={<CheckCircle2 />} label="Attendance" value={`${classAttendance}%`} helper="Class average" />
+            <StatCard icon={<BookOpen />} label="Daily Reading" value={`${classReading}%`} helper="Class average" />
+            <StatCard icon={<Trophy />} label="Class Points" value={totalPoints} helper="Total earned" />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Class Progress</h2>
+            <div className="progress-grid">
+              <ProgressCircle label="Attendance" value={classAttendance} emoji="⛪" />
+              <ProgressCircle label="Daily Reading" value={classReading} emoji="📖" />
+              <ProgressCircle label="Homework" value={classHomework} emoji="✏️" />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Class Roster</h2>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th><th>Grade</th><th>Attendance</th><th>Reading</th>
+                    <th>Homework</th><th>Memory Verse</th><th>Physical Bible</th><th>Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => {
+                    const stats = studentStats[student.id] || {}
+                    return (
+                      <tr key={student.id}>
+                        <td><strong>{student.first_name} {student.last_name}</strong></td>
+                        <td>{student.grade || '—'}</td>
+                        <td>{stats.attendance ?? 0}%</td>
+                        <td>{stats.reading ?? 0}%</td>
+                        <td>{stats.homework ?? 0}%</td>
+                        <td>{stats.verse ?? 0}%</td>
+                        <td>{stats.physicalBible ?? 0}%</td>
+                        <td><strong>{stats.points ?? 0}</strong></td>
+                      </tr>
+                    )
+                  })}
+                  {!students.length && <tr><td colSpan="8">No students are assigned to this class yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      ) : null}
     </>
   )
 }
