@@ -268,7 +268,14 @@ function Login() {
             background: 'white'
           }}
         >
-          <form onSubmit={handleLogin}>
+          <form
+            onSubmit={handleLogin}
+            style={{
+              width: '100%',
+              maxWidth: '410px',
+              margin: '0 auto'
+            }}
+          >
             <label>Email</label>
 
             <input
@@ -281,6 +288,7 @@ function Login() {
               placeholder="you@example.com"
               required
               disabled={busy}
+              style={{ width: '100%' }}
             />
 
             <label>Password</label>
@@ -295,6 +303,7 @@ function Login() {
               placeholder="Enter your password"
               required
               disabled={busy}
+              style={{ width: '100%' }}
             />
 
             {errorMessage && (
