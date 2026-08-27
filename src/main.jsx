@@ -1626,7 +1626,15 @@ function StudentHomework({ profile }) {
     }
 
     setActiveQuiz(data.quiz || quiz)
-    setQuestions(data.questions || [])
+
+    if (data?.submission) {
+      setResult(data.submission)
+      setQuestions([])
+    } else {
+      setResult(null)
+      setQuestions(data.questions || [])
+    }
+
     setAnswers({})
     setLoadingQuiz(false)
   }
@@ -1733,6 +1741,14 @@ function StudentHomework({ profile }) {
     setResult(data.submission)
     setQuestions([])
     setAnswers({})
+
+    setSubmissions((current) => [
+      data.submission,
+      ...current.filter(
+        (submission) => submission.quiz_id !== activeQuiz.id
+      )
+    ])
+
     setMessage('Homework submitted successfully!')
     await loadHomework()
     setSubmitting(false)
