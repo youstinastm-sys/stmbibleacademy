@@ -5749,6 +5749,15 @@ function ServantReports({ profile }) {
   const [participation, setParticipation] = useState([])
   const [bonus, setBonus] = useState([])
   const [rules, setRules] = useState([])
+
+  const [quizzes, setQuizzes] = useState([])
+  const [quizSubmissions, setQuizSubmissions] = useState([])
+  const [selectedQuizId, setSelectedQuizId] = useState('')
+  const [selectedSubmission, setSelectedSubmission] = useState(null)
+  const [reviewQuestions, setReviewQuestions] = useState([])
+  const [reviewAnswers, setReviewAnswers] = useState([])
+  const [reviewLoading, setReviewLoading] = useState(false)
+
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
 
@@ -5780,29 +5789,49 @@ function ServantReports({ profile }) {
       return
     }
 
-    setClassId(assignment.class_id)
+    const assignedClassId = assignment.class_id
+    setClassId(assignedClassId)
 
-    const [classResult, membershipsResult] = await Promise.all([
-      supabase
-        .from('classes')
-        .select('id, name')
-        .eq('id', assignment.class_id)
-        .single(),
+    const [classResult, membershipsResult, quizzesResult] =
+      await Promise.all([
+        supabase
+          .from('classes')
+          .select('id, name')
+          .eq('id', assignedClassId)
+          .single(),
 
-      supabase
-        .from('class_members')
-        .select('student_id')
-        .eq('class_id', assignment.class_id)
-    ])
+        supabase
+          .from('class_members')
+          .select('student_id')
+          .eq('class_id', assignedClassId),
+
+        supabase
+          .from('homework_quizzes')
+          .select(
+            'id, class_id, bible_study_date, title, due_date, created_at'
+          )
+          .eq('class_id', assignedClassId)
+          .order('bible_study_date', { ascending: false })
+      ])
 
     if (classResult.data) {
       setClassName(classResult.data.name)
     }
 
-    if (membershipsResult.error) {
-      setMessage(membershipsResult.error.message)
+    if (membershipsResult.error || quizzesResult.error) {
+      setMessage(
+        membershipsResult.error?.message ||
+        quizzesResult.error?.message
+      )
       setLoading(false)
       return
+    }
+
+    const quizRows = quizzesResult.data || []
+    setQuizzes(quizRows)
+
+    if (quizRows.length && !selectedQuizId) {
+      setSelectedQuizId(String(quizRows[0].id))
     }
 
     const studentIds =
@@ -5810,6 +5839,7 @@ function ServantReports({ profile }) {
 
     if (!studentIds.length) {
       setStudents([])
+      setQuizSubmissions([])
       setLoading(false)
       return
     }
@@ -5831,46 +5861,69 @@ function ServantReports({ profile }) {
     setStudents(roster)
 
     const ids = roster.map((student) => student.id)
+    const quizIds = quizRows.map((quiz) => quiz.id)
 
-    const results = await Promise.all([
+    const reportPromises = [
       supabase
         .from('attendance')
         .select('student_id, bible_study_date, present')
-        .eq('class_id', assignment.class_id)
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('daily_reading')
         .select('student_id, completed')
         .in('student_id', ids),
+
       supabase
         .from('homework')
         .select('student_id, bible_study_date, completed')
-        .eq('class_id', assignment.class_id)
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('memory_verses')
         .select('student_id, bible_study_date, completed')
-        .eq('class_id', assignment.class_id)
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('physical_bible')
-        .select('student_id, bible_study_date, brought_bible')
-        .eq('class_id', assignment.class_id)
+        .select('student_id, brought_bible')
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('participation')
-        .select('student_id, bible_study_date, points')
-        .eq('class_id', assignment.class_id)
+        .select('student_id, points')
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('bonus_points')
-        .select('student_id, bible_study_date, points')
-        .eq('class_id', assignment.class_id)
+        .select('student_id, points')
+        .eq('class_id', assignedClassId)
         .in('student_id', ids),
+
       supabase
         .from('point_rules')
         .select('category, points')
-    ])
+    ]
+
+    if (quizIds.length) {
+      reportPromises.push(
+        supabase
+          .from('homework_submissions')
+          .select(
+            'id, quiz_id, student_id, score, total_questions, percentage, submitted_at'
+          )
+          .in('quiz_id', quizIds)
+          .in('student_id', ids)
+          .order('submitted_at', { ascending: false })
+      )
+    }
+
+    const results = await Promise.all(reportPromises)
 
     const firstError =
       results.find((result) => result.error)?.error
@@ -5889,16 +5942,25 @@ function ServantReports({ profile }) {
     setParticipation(results[5].data || [])
     setBonus(results[6].data || [])
     setRules(results[7].data || [])
+    setQuizSubmissions(quizIds.length ? results[8].data || [] : [])
+
     setLoading(false)
   }
 
-  const percentage = (records, field) => {
-    if (!records.length) return 0
-    return Math.round(
-      (records.filter((record) => record[field] === true).length /
-        records.length) *
-        100
-    )
+  function studentName(studentId) {
+    const student = students.find((item) => item.id === studentId)
+
+    return student
+      ? `${student.first_name} ${student.last_name}`
+      : 'Student'
+  }
+
+  function countCompleted(records, field) {
+    return records.filter((record) => record[field] === true).length
+  }
+
+  function percent(done, total) {
+    return total ? Math.round((done / total) * 100) : 0
   }
 
   const pointRules = {}
@@ -5906,94 +5968,319 @@ function ServantReports({ profile }) {
     pointRules[rule.category] = Number(rule.points) || 0
   })
 
-  function studentPoints(studentId) {
-    const countTrue = (records, field) =>
-      records.filter(
-        (record) =>
-          record.student_id === studentId &&
-          record[field] === true
-      ).length
+  const attendanceDone = countCompleted(attendance, 'present')
+  const readingDone = countCompleted(reading, 'completed')
+  const homeworkDone = countCompleted(homework, 'completed')
+  const verseDone = countCompleted(verses, 'completed')
+  const bibleDone = countCompleted(bibles, 'brought_bible')
 
-    return (
-      countTrue(attendance, 'present') *
-        (pointRules.attendance || 0) +
-      countTrue(reading, 'completed') *
-        (pointRules.daily_reading || 0) +
-      countTrue(homework, 'completed') *
-        (pointRules.homework || 0) +
-      countTrue(verses, 'completed') *
-        (pointRules.memory_verse || 0) +
-      countTrue(bibles, 'brought_bible') *
-        (pointRules.physical_bible || 0) +
-      participation
-        .filter((record) => record.student_id === studentId)
-        .reduce(
-          (sum, record) =>
-            sum + (Number(record.points) || 0),
-          0
-        ) +
-      bonus
-        .filter((record) => record.student_id === studentId)
-        .reduce(
-          (sum, record) =>
-            sum + (Number(record.points) || 0),
-          0
-        )
-    )
-  }
-
-  const leaderboard = students
-    .map((student) => ({
-      ...student,
-      points: studentPoints(student.id)
-    }))
-    .sort((a, b) => b.points - a.points)
-
-  const totalPoints = leaderboard.reduce(
-    (sum, student) => sum + student.points,
+  const participationPoints = participation.reduce(
+    (sum, item) => sum + (Number(item.points) || 0),
     0
   )
 
-  const attendancePercent = percentage(attendance, 'present')
-  const readingPercent = percentage(reading, 'completed')
-  const homeworkPercent = percentage(homework, 'completed')
-  const versePercent = percentage(verses, 'completed')
-  const biblePercent = percentage(bibles, 'brought_bible')
+  const bonusPoints = bonus.reduce(
+    (sum, item) => sum + (Number(item.points) || 0),
+    0
+  )
 
-  const attendanceDates = [
-    ...new Set(
-      attendance
-        .map((record) => record.bible_study_date)
-        .filter(Boolean)
-    )
-  ].sort((a, b) => b.localeCompare(a))
+  const totalPoints =
+    attendanceDone * (pointRules.attendance || 0) +
+    readingDone * (pointRules.daily_reading || 0) +
+    homeworkDone * (pointRules.homework || 0) +
+    verseDone * (pointRules.memory_verse || 0) +
+    bibleDone * (pointRules.physical_bible || 0) +
+    participationPoints +
+    bonusPoints
 
-  const recentAttendance = attendanceDates
-    .slice(0, 8)
-    .map((date) => {
-      const records = attendance.filter(
-        (record) => record.bible_study_date === date
+  const selectedQuiz =
+    quizzes.find(
+      (quiz) => String(quiz.id) === String(selectedQuizId)
+    ) || null
+
+  const selectedQuizSubmissions = selectedQuiz
+    ? quizSubmissions.filter(
+        (submission) =>
+          String(submission.quiz_id) === String(selectedQuiz.id)
       )
+    : []
 
-      const present = records.filter(
-        (record) => record.present === true
-      ).length
+  const submittedStudentIds = new Set(
+    selectedQuizSubmissions.map((submission) => submission.student_id)
+  )
 
-      return {
-        date,
-        present,
-        total: records.length,
-        percent: records.length
-          ? Math.round((present / records.length) * 100)
-          : 0
+  const notSubmittedStudents = students.filter(
+    (student) => !submittedStudentIds.has(student.id)
+  )
+
+  const classAverage = selectedQuizSubmissions.length
+    ? Math.round(
+        selectedQuizSubmissions.reduce(
+          (sum, submission) =>
+            sum + (Number(submission.percentage) || 0),
+          0
+        ) / selectedQuizSubmissions.length
+      )
+    : 0
+
+  async function openSubmissionReview(submission) {
+    setReviewLoading(true)
+    setMessage('')
+    setSelectedSubmission(submission)
+    setReviewQuestions([])
+    setReviewAnswers([])
+
+    const [questionsResult, answersResult] = await Promise.all([
+      supabase
+        .from('homework_questions')
+        .select(
+          'id, question_order, question_type, question_text, question_data'
+        )
+        .eq('quiz_id', submission.quiz_id)
+        .order('question_order', { ascending: true }),
+
+      supabase
+        .from('homework_answers')
+        .select(
+          'id, submission_id, question_id, selected_answer, is_correct'
+        )
+        .eq('submission_id', submission.id)
+    ])
+
+    if (questionsResult.error || answersResult.error) {
+      setMessage(
+        questionsResult.error?.message ||
+        answersResult.error?.message
+      )
+      setReviewLoading(false)
+      return
+    }
+
+    setReviewQuestions(questionsResult.data || [])
+    setReviewAnswers(answersResult.data || [])
+    setReviewLoading(false)
+  }
+
+  function answerForQuestion(questionId) {
+    return reviewAnswers.find(
+      (answer) => Number(answer.question_id) === Number(questionId)
+    )
+  }
+
+  function displayStudentAnswer(question, answer) {
+    if (!answer) return 'No answer'
+
+    if (question.question_type === 'multiple_choice') {
+      const letter = String(answer.selected_answer || '').toUpperCase()
+      const choices = question.question_data?.choices || []
+      const choiceIndex = ['A', 'B', 'C', 'D'].indexOf(letter)
+
+      return choiceIndex >= 0 && choices[choiceIndex]
+        ? `${letter}. ${choices[choiceIndex]}`
+        : letter
+    }
+
+    if (question.question_type === 'true_false') {
+      const value = String(answer.selected_answer || '')
+      return value === 'true'
+        ? 'True'
+        : value === 'false'
+          ? 'False'
+          : value
+    }
+
+    if (question.question_type === 'matching') {
+      try {
+        const selected = JSON.parse(answer.selected_answer || '{}')
+        const pairs = question.question_data?.pairs || []
+
+        return pairs
+          .map(
+            (pair, index) =>
+              `${pair.left} → ${selected[String(index)] || '—'}`
+          )
+          .join(' • ')
+      } catch {
+        return answer.selected_answer || '—'
       }
-    })
+    }
+
+    return answer.selected_answer || '—'
+  }
+
+  function displayCorrectAnswer(question) {
+    const data = question.question_data || {}
+
+    if (question.question_type === 'multiple_choice') {
+      const letter = String(data.correct_answer || '').toUpperCase()
+      const choices = data.choices || []
+      const choiceIndex = ['A', 'B', 'C', 'D'].indexOf(letter)
+
+      return choiceIndex >= 0 && choices[choiceIndex]
+        ? `${letter}. ${choices[choiceIndex]}`
+        : letter || '—'
+    }
+
+    if (question.question_type === 'true_false') {
+      return data.correct_answer === 'true' ? 'True' : 'False'
+    }
+
+    if (question.question_type === 'fill_blank') {
+      return (data.accepted_answers || []).join(' / ') || '—'
+    }
+
+    if (question.question_type === 'matching') {
+      return (data.pairs || [])
+        .map((pair) => `${pair.left} → ${pair.right}`)
+        .join(' • ')
+    }
+
+    return '—'
+  }
+
+  if (selectedSubmission) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedSubmission(null)
+            setReviewQuestions([])
+            setReviewAnswers([])
+            setMessage('')
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: 0,
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Homework Results
+        </button>
+
+        <DashboardHeader
+          title={`${studentName(selectedSubmission.student_id)} — Homework Review`}
+          subtitle={
+            selectedQuiz
+              ? selectedQuiz.title
+              : 'Homework submission'
+          }
+        />
+
+        {message && (
+          <section className="dashboard-card">
+            <p>{message}</p>
+          </section>
+        )}
+
+        {reviewLoading ? (
+          <section className="dashboard-card">
+            <p>Loading answers...</p>
+          </section>
+        ) : (
+          <>
+            <div className="stats-grid">
+              <StatCard
+                icon={<CheckCircle2 />}
+                label="Score"
+                value={`${selectedSubmission.score}/${selectedSubmission.total_questions}`}
+                helper="Questions correct"
+              />
+
+              <StatCard
+                icon={<Trophy />}
+                label="Grade"
+                value={`${Math.round(
+                  Number(selectedSubmission.percentage) || 0
+                )}%`}
+                helper="Final score"
+              />
+            </div>
+
+            <section className="dashboard-card">
+              <h2>Student Answers</h2>
+
+              {reviewQuestions.map((question, index) => {
+                const answer = answerForQuestion(question.id)
+
+                return (
+                  <div
+                    key={question.id}
+                    style={{
+                      border: '1px solid #e7e7ef',
+                      borderRadius: '14px',
+                      padding: '16px',
+                      marginBottom: '14px'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        alignItems: 'flex-start'
+                      }}
+                    >
+                      <strong>
+                        {index + 1}. {question.question_text}
+                      </strong>
+
+                      <span
+                        style={{
+                          fontWeight: '800',
+                          color: answer?.is_correct
+                            ? '#087257'
+                            : '#b42318'
+                        }}
+                      >
+                        {answer?.is_correct ? '✓ Correct' : '✕ Incorrect'}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: '12px',
+                        display: 'grid',
+                        gap: '8px'
+                      }}
+                    >
+                      <div>
+                        <strong>Student answer: </strong>
+                        {displayStudentAnswer(question, answer)}
+                      </div>
+
+                      <div>
+                        <strong>Correct answer: </strong>
+                        {displayCorrectAnswer(question)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {!reviewQuestions.length && (
+                <p>No question details were found.</p>
+              )}
+            </section>
+          </>
+        )}
+      </>
+    )
+  }
 
   return (
     <>
       <DashboardHeader
         title="Reports"
-        subtitle={`${className} • Class performance and progress`}
+        subtitle={`${className} • Class progress and homework results`}
       />
 
       {message && (
@@ -6013,134 +6300,309 @@ function ServantReports({ profile }) {
               icon={<Users />}
               label="Students"
               value={students.length}
-              helper="Active roster"
+              helper="Active students"
             />
+
             <StatCard
               icon={<CheckCircle2 />}
               label="Attendance"
-              value={`${attendancePercent}%`}
-              helper="Class average"
+              value={`${percent(
+                attendanceDone,
+                attendance.length
+              )}%`}
+              helper="Overall attendance"
             />
+
             <StatCard
               icon={<BookOpen />}
               label="Daily Reading"
-              value={`${readingPercent}%`}
-              helper="Class average"
+              value={`${percent(
+                readingDone,
+                reading.length
+              )}%`}
+              helper="Reading completion"
             />
+
             <StatCard
               icon={<Trophy />}
-              label="Points Awarded"
+              label="Points Earned"
               value={totalPoints}
               helper="Class total"
             />
           </div>
 
           <section className="dashboard-card">
-            <h2>Class Progress</h2>
+            <h2>Homework Results</h2>
 
-            <div className="progress-grid">
-              <ProgressCircle
-                label="Attendance"
-                value={attendancePercent}
-                emoji="⛪"
-              />
-              <ProgressCircle
-                label="Daily Reading"
-                value={readingPercent}
-                emoji="📖"
-              />
-              <ProgressCircle
-                label="Homework"
-                value={homeworkPercent}
-                emoji="✏️"
-              />
-              <ProgressCircle
-                label="Memory Verse"
-                value={versePercent}
-                emoji="🧠"
-              />
-              <ProgressCircle
-                label="Physical Bible"
-                value={biblePercent}
-                emoji="📕"
-              />
-            </div>
+            {!quizzes.length ? (
+              <p>No homework quizzes have been assigned yet.</p>
+            ) : (
+              <>
+                <div
+                  style={{
+                    maxWidth: '520px',
+                    marginTop: '16px'
+                  }}
+                >
+                  <label>Select Homework Quiz</label>
+                  <select
+                    value={selectedQuizId}
+                    onChange={(event) => {
+                      setSelectedQuizId(event.target.value)
+                      setSelectedSubmission(null)
+                    }}
+                    style={{ width: '100%' }}
+                  >
+                    {quizzes.map((quiz) => (
+                      <option
+                        key={quiz.id}
+                        value={quiz.id}
+                      >
+                        {quiz.title} — {quiz.bible_study_date}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedQuiz && (
+                  <>
+                    <div
+                      className="stats-grid"
+                      style={{ marginTop: '22px' }}
+                    >
+                      <StatCard
+                        icon={<CheckCircle2 />}
+                        label="Submitted"
+                        value={`${selectedQuizSubmissions.length}/${students.length}`}
+                        helper="Students completed"
+                      />
+
+                      <StatCard
+                        icon={<BarChart3 />}
+                        label="Class Average"
+                        value={`${classAverage}%`}
+                        helper="Submitted students"
+                      />
+
+                      <StatCard
+                        icon={<Users />}
+                        label="Missing"
+                        value={notSubmittedStudents.length}
+                        helper="Not submitted"
+                      />
+                    </div>
+
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Student</th>
+                            <th>Score</th>
+                            <th>Grade</th>
+                            <th>Submitted</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {selectedQuizSubmissions.map(
+                            (submission) => (
+                              <tr key={submission.id}>
+                                <td>
+                                  <strong>
+                                    {studentName(
+                                      submission.student_id
+                                    )}
+                                  </strong>
+                                </td>
+
+                                <td>
+                                  {submission.score}/
+                                  {submission.total_questions}
+                                </td>
+
+                                <td>
+                                  <strong>
+                                    {Math.round(
+                                      Number(
+                                        submission.percentage
+                                      ) || 0
+                                    )}
+                                    %
+                                  </strong>
+                                </td>
+
+                                <td>
+                                  {submission.submitted_at
+                                    ? new Date(
+                                        submission.submitted_at
+                                      ).toLocaleString()
+                                    : '—'}
+                                </td>
+
+                                <td
+                                  style={{
+                                    textAlign: 'right'
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openSubmissionReview(
+                                        submission
+                                      )
+                                    }
+                                    style={{
+                                      border: 'none',
+                                      background:
+                                        'transparent',
+                                      color: '#6b35c0',
+                                      fontWeight: '700',
+                                      cursor: 'pointer',
+                                      display:
+                                        'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    View Answers
+                                    <ChevronRight
+                                      size={17}
+                                    />
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          )}
+
+                          {!selectedQuizSubmissions.length && (
+                            <tr>
+                              <td colSpan="5">
+                                No students have submitted this
+                                homework yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {!!notSubmittedStudents.length && (
+                      <div
+                        style={{
+                          marginTop: '22px',
+                          padding: '16px',
+                          borderRadius: '14px',
+                          background: '#fafafa',
+                          border: '1px solid #ececf2'
+                        }}
+                      >
+                        <strong>Not Submitted</strong>
+
+                        <p
+                          style={{
+                            marginBottom: 0,
+                            color: '#6b7280'
+                          }}
+                        >
+                          {notSubmittedStudents
+                            .map(
+                              (student) =>
+                                `${student.first_name} ${student.last_name}`
+                            )
+                            .join(', ')}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
           </section>
 
           <section className="dashboard-card">
-            <h2>Student Leaderboard</h2>
+            <h2>Overall Class Progress</h2>
 
             <div className="table-wrapper">
               <table>
                 <thead>
                   <tr>
-                    <th>Rank</th>
-                    <th>Student</th>
-                    <th>Grade</th>
-                    <th>Points</th>
+                    <th>Category</th>
+                    <th>Completed</th>
+                    <th>Progress</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {leaderboard.map((student, index) => (
-                    <tr key={student.id}>
-                      <td>#{index + 1}</td>
-                      <td>
-                        <strong>
-                          {student.first_name}{' '}
-                          {student.last_name}
-                        </strong>
-                      </td>
-                      <td>{student.grade || '—'}</td>
-                      <td>
-                        <strong>{student.points}</strong>
-                      </td>
-                    </tr>
-                  ))}
-
-                  {!leaderboard.length && (
-                    <tr>
-                      <td colSpan="4">
-                        No students are assigned to this class.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="dashboard-card">
-            <h2>Recent Attendance</h2>
-
-            <div className="table-wrapper">
-              <table>
-                <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Present</th>
-                    <th>Total</th>
-                    <th>Attendance</th>
+                    <td>Attendance</td>
+                    <td>
+                      {attendanceDone}/{attendance.length}
+                    </td>
+                    <td>
+                      {percent(
+                        attendanceDone,
+                        attendance.length
+                      )}
+                      %
+                    </td>
                   </tr>
-                </thead>
 
-                <tbody>
-                  {recentAttendance.map((row) => (
-                    <tr key={row.date}>
-                      <td>{row.date}</td>
-                      <td>{row.present}</td>
-                      <td>{row.total}</td>
-                      <td>{row.percent}%</td>
-                    </tr>
-                  ))}
+                  <tr>
+                    <td>Daily Reading</td>
+                    <td>
+                      {readingDone}/{reading.length}
+                    </td>
+                    <td>
+                      {percent(
+                        readingDone,
+                        reading.length
+                      )}
+                      %
+                    </td>
+                  </tr>
 
-                  {!recentAttendance.length && (
-                    <tr>
-                      <td colSpan="4">
-                        No attendance has been recorded yet.
-                      </td>
-                    </tr>
-                  )}
+                  <tr>
+                    <td>Homework</td>
+                    <td>
+                      {homeworkDone}/{homework.length}
+                    </td>
+                    <td>
+                      {percent(
+                        homeworkDone,
+                        homework.length
+                      )}
+                      %
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>Memory Verse</td>
+                    <td>
+                      {verseDone}/{verses.length}
+                    </td>
+                    <td>
+                      {percent(
+                        verseDone,
+                        verses.length
+                      )}
+                      %
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>Physical Bible</td>
+                    <td>
+                      {bibleDone}/{bibles.length}
+                    </td>
+                    <td>
+                      {percent(
+                        bibleDone,
+                        bibles.length
+                      )}
+                      %
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -6150,7 +6612,6 @@ function ServantReports({ profile }) {
     </>
   )
 }
-
 
 
 function ServantProfile({ profile }) {
