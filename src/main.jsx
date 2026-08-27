@@ -15,7 +15,9 @@ import {
   UserRound,
   BarChart3,
   ArrowLeft,
-  ChevronRight
+  ChevronRight,
+  CalendarDays,
+  Clock
 } from 'lucide-react'
 
 import { supabase } from './supabase'
@@ -346,6 +348,10 @@ function DashboardShell({ profile }) {
         return <StudentAttendance profile={profile} />
       }
 
+      if (activePage === 'Profile') {
+        return <StudentProfile profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -424,15 +430,58 @@ function StudentDashboard({ profile }) {
     homework: 0,
     verse: 0,
     physicalBible: 0,
-    participation: 0
+    readingStreak: 0,
+    completedReadings: 0
   })
 
+  const [currentVerse, setCurrentVerse] = useState(null)
+  const [nextHomework, setNextHomework] = useState(null)
+  const [todayReading, setTodayReading] = useState(null)
+  const [loading, setLoading] = useState(true)
+
   useEffect(() => {
-    loadStudentStats()
+    loadDashboard()
   }, [])
 
-  async function loadStudentStats() {
+  function calculateReadingStreak(records) {
+    const completedDates = new Set(
+      records
+        .filter((record) => record.completed === true)
+        .map((record) => record.reading_date)
+    )
+
+    let streak = 0
+    const cursor = new Date()
+    cursor.setHours(12, 0, 0, 0)
+
+    const today = cursor.toISOString().slice(0, 10)
+
+    if (!completedDates.has(today)) {
+      cursor.setDate(cursor.getDate() - 1)
+    }
+
+    while (completedDates.has(cursor.toISOString().slice(0, 10))) {
+      streak += 1
+      cursor.setDate(cursor.getDate() - 1)
+    }
+
+    return streak
+  }
+
+  async function loadDashboard() {
+    setLoading(true)
+
     const studentId = profile.id
+    const today = new Date().toISOString().slice(0, 10)
+
+    const { data: membership } = await supabase
+      .from('class_members')
+      .select('class_id')
+      .eq('student_id', studentId)
+      .limit(1)
+      .maybeSingle()
+
+    const classId = membership?.class_id || null
 
     const [
       attendanceResult,
@@ -446,42 +495,43 @@ function StudentDashboard({ profile }) {
     ] = await Promise.all([
       supabase
         .from('attendance')
-        .select('*')
+        .select('present')
         .eq('student_id', studentId),
 
       supabase
         .from('daily_reading')
-        .select('*')
-        .eq('student_id', studentId),
+        .select('reading_date, completed')
+        .eq('student_id', studentId)
+        .order('reading_date', { ascending: false }),
 
       supabase
         .from('homework')
-        .select('*')
+        .select('completed')
         .eq('student_id', studentId),
 
       supabase
         .from('memory_verses')
-        .select('*')
+        .select('completed')
         .eq('student_id', studentId),
 
       supabase
         .from('physical_bible')
-        .select('*')
+        .select('brought_bible')
         .eq('student_id', studentId),
 
       supabase
         .from('participation')
-        .select('*')
+        .select('points')
         .eq('student_id', studentId),
 
       supabase
         .from('bonus_points')
-        .select('*')
+        .select('points')
         .eq('student_id', studentId),
 
       supabase
         .from('point_rules')
-        .select('*')
+        .select('category, points')
     ])
 
     const attendance = attendanceResult.data || []
@@ -494,110 +544,124 @@ function StudentDashboard({ profile }) {
     const rules = rulesResult.data || []
 
     const pointRules = {}
-
     rules.forEach((rule) => {
-      pointRules[rule.category] = rule.points
+      pointRules[rule.category] = Number(rule.points) || 0
     })
 
     const countTrue = (items, field) =>
       items.filter((item) => item[field] === true).length
 
-    const percentage = (complete, total) => {
-      if (!total) return 0
+    const percentage = (complete, total) =>
+      total ? Math.round((complete / total) * 100) : 0
 
-      return Math.round((complete / total) * 100)
-    }
-
-    const attendanceCompleted =
-      countTrue(attendance, 'present')
-
-    const readingCompleted =
-      countTrue(reading, 'completed')
-
-    const homeworkCompleted =
-      countTrue(homework, 'completed')
-
-    const verseCompleted =
-      countTrue(verses, 'completed')
-
-    const bibleCompleted =
-      countTrue(physicalBible, 'brought_bible')
+    const attendanceCompleted = countTrue(attendance, 'present')
+    const readingCompleted = countTrue(reading, 'completed')
+    const homeworkCompleted = countTrue(homework, 'completed')
+    const verseCompleted = countTrue(verses, 'completed')
+    const bibleCompleted = countTrue(physicalBible, 'brought_bible')
 
     const participationPoints = participation.reduce(
-      (sum, record) => sum + (record.points || 0),
+      (sum, record) => sum + (Number(record.points) || 0),
       0
     )
 
     const bonusPoints = bonus.reduce(
-      (sum, record) => sum + (record.points || 0),
+      (sum, record) => sum + (Number(record.points) || 0),
       0
     )
 
     const totalPoints =
-      attendanceCompleted *
-        (pointRules.attendance || 0) +
-      readingCompleted *
-        (pointRules.daily_reading || 0) +
-      homeworkCompleted *
-        (pointRules.homework || 0) +
-      verseCompleted *
-        (pointRules.memory_verse || 0) +
-      bibleCompleted *
-        (pointRules.physical_bible || 0) +
+      attendanceCompleted * (pointRules.attendance || 0) +
+      readingCompleted * (pointRules.daily_reading || 0) +
+      homeworkCompleted * (pointRules.homework || 0) +
+      verseCompleted * (pointRules.memory_verse || 0) +
+      bibleCompleted * (pointRules.physical_bible || 0) +
       participationPoints +
       bonusPoints
 
     setStats({
       points: totalPoints,
-
       attendance: percentage(
         attendanceCompleted,
         attendance.length
       ),
-
-      reading: percentage(
-        readingCompleted,
-        reading.length
-      ),
-
-      homework: percentage(
-        homeworkCompleted,
-        homework.length
-      ),
-
-      verse: percentage(
-        verseCompleted,
-        verses.length
-      ),
-
+      reading: percentage(readingCompleted, reading.length),
+      homework: percentage(homeworkCompleted, homework.length),
+      verse: percentage(verseCompleted, verses.length),
       physicalBible: percentage(
         bibleCompleted,
         physicalBible.length
       ),
-
-      participation: participation.length
-        ? Math.min(
-            100,
-            Math.round(
-              (participationPoints /
-                (participation.length * 5)) *
-                100
-            )
-          )
-        : 0
+      readingStreak: calculateReadingStreak(reading),
+      completedReadings: readingCompleted
     })
+
+    if (classId) {
+      const [verseResult, homeworkQuizResult, readingAssignmentResult] =
+        await Promise.all([
+          supabase
+            .from('memory_verse_assignments')
+            .select(
+              'id, bible_study_date, verse_reference, verse_text'
+            )
+            .eq('class_id', classId)
+            .gte('bible_study_date', today)
+            .order('bible_study_date', { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+
+          supabase
+            .from('homework_quizzes')
+            .select('id, title, bible_study_date, due_date')
+            .eq('class_id', classId)
+            .gte('due_date', today)
+            .order('due_date', { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+
+          supabase
+            .from('daily_reading_assignments')
+            .select('id, reading_date, passage, title')
+            .eq('class_id', classId)
+            .eq('reading_date', today)
+            .maybeSingle()
+        ])
+
+      setCurrentVerse(verseResult.data || null)
+      setNextHomework(homeworkQuizResult.data || null)
+      setTodayReading(readingAssignmentResult.data || null)
+    }
+
+    setLoading(false)
   }
+
+  const overallProgress = Math.round(
+    (
+      stats.attendance +
+      stats.reading +
+      stats.homework +
+      stats.verse +
+      stats.physicalBible
+    ) / 5
+  )
 
   return (
     <>
       <DashboardHeader
         title={`Welcome back, ${profile.first_name}! 👋`}
-        subtitle="Keep growing in God's Word every day."
+        subtitle="Here's what is happening in Bible Study Academy."
       />
 
-      <div className="scripture-banner">
-        “I have hidden your word in my heart that I might
-        not sin against you.”
+      <div
+        className="scripture-banner"
+        style={{
+          padding: '22px 24px',
+          borderRadius: '18px',
+          lineHeight: 1.6
+        }}
+      >
+        “I have hidden your word in my heart that I might not sin
+        against you.”
         <strong> Psalm 119:11</strong>
       </div>
 
@@ -606,30 +670,131 @@ function StudentDashboard({ profile }) {
           icon={<Trophy />}
           label="Total Points"
           value={stats.points}
-          helper="Keep growing!"
+          helper="All points earned"
         />
 
         <StatCard
           icon={<Flame />}
           label="Reading Streak"
-          value="0"
-          helper="Coming soon"
+          value={stats.readingStreak}
+          helper={
+            stats.readingStreak === 1
+              ? 'day in a row'
+              : 'days in a row'
+          }
         />
 
         <StatCard
           icon={<CheckCircle2 />}
           label="Attendance"
           value={`${stats.attendance}%`}
-          helper="Bible Study"
+          helper="Bible Study Fridays"
         />
 
         <StatCard
           icon={<Star />}
-          label="This Week's Rank"
-          value="—"
-          helper="Coming soon"
+          label="Overall Progress"
+          value={`${overallProgress}%`}
+          helper="Across your main goals"
         />
       </div>
+
+      <section className="dashboard-card">
+        <h2>This Week</h2>
+
+        {loading ? (
+          <p>Loading your week...</p>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(230px, 1fr))',
+              gap: '16px',
+              marginTop: '18px'
+            }}
+          >
+            <div
+              style={{
+                border: '1px solid #ececf2',
+                borderRadius: '16px',
+                padding: '18px'
+              }}
+            >
+              <BookOpen size={22} />
+              <h3 style={{ marginBottom: '6px' }}>
+                Today's Reading
+              </h3>
+              <strong style={{ color: '#6b35c0' }}>
+                {todayReading?.passage || 'No reading assigned today'}
+              </strong>
+              {todayReading?.title && (
+                <p
+                  style={{
+                    color: '#6b7280',
+                    marginBottom: 0
+                  }}
+                >
+                  {todayReading.title}
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                border: '1px solid #ececf2',
+                borderRadius: '16px',
+                padding: '18px'
+              }}
+            >
+              <ClipboardCheck size={22} />
+              <h3 style={{ marginBottom: '6px' }}>
+                Next Homework
+              </h3>
+              <strong style={{ color: '#6b35c0' }}>
+                {nextHomework?.title || 'No upcoming homework'}
+              </strong>
+              {nextHomework?.due_date && (
+                <p
+                  style={{
+                    color: '#6b7280',
+                    marginBottom: 0
+                  }}
+                >
+                  Due {nextHomework.due_date}
+                </p>
+              )}
+            </div>
+
+            <div
+              style={{
+                border: '1px solid #ececf2',
+                borderRadius: '16px',
+                padding: '18px'
+              }}
+            >
+              <GraduationCap size={22} />
+              <h3 style={{ marginBottom: '6px' }}>
+                Memory Verse
+              </h3>
+              <strong style={{ color: '#6b35c0' }}>
+                {currentVerse?.verse_reference ||
+                  'No verse assigned yet'}
+              </strong>
+              {currentVerse?.bible_study_date && (
+                <p
+                  style={{
+                    color: '#6b7280',
+                    marginBottom: 0
+                  }}
+                >
+                  For {currentVerse.bible_study_date}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-card">
         <h2>My Progress</h2>
@@ -664,26 +829,21 @@ function StudentDashboard({ profile }) {
             value={stats.physicalBible}
             emoji="📕"
           />
-
-          <ProgressCircle
-            label="Participation"
-            value={stats.participation}
-            emoji="⭐"
-          />
         </div>
       </section>
 
       <section className="dashboard-card weekly-goal">
         <div>
-          <h3>This Week's Goal</h3>
+          <h3>Keep Building Your Streak 🔥</h3>
 
           <p>
-            Complete your daily Bible reading and keep
-            building your progress.
+            You've completed {stats.completedReadings} Bible reading
+            {stats.completedReadings === 1 ? '' : 's'} so far.
+            Keep reading and collecting your SPACE PETS gems.
           </p>
         </div>
 
-        <Star size={30} />
+        <Flame size={30} />
       </section>
     </>
   )
@@ -3896,6 +4056,380 @@ function StudentAttendance({ profile }) {
                 </tbody>
               </table>
             </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentProfile({ profile }) {
+  const [email, setEmail] = useState('')
+  const [className, setClassName] = useState('Unassigned')
+  const [firstName, setFirstName] = useState(profile.first_name || '')
+  const [lastName, setLastName] = useState(profile.last_name || '')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
+  const [profileMessage, setProfileMessage] = useState('')
+  const [passwordMessage, setPasswordMessage] = useState('')
+
+  useEffect(() => {
+    loadStudentProfile()
+  }, [])
+
+  async function loadStudentProfile() {
+    setLoading(true)
+
+    const [userResult, membershipResult] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase
+        .from('class_members')
+        .select('class_id')
+        .eq('student_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+    ])
+
+    setEmail(userResult.data?.user?.email || '')
+
+    if (membershipResult.data?.class_id) {
+      const { data: classRecord } = await supabase
+        .from('classes')
+        .select('name')
+        .eq('id', membershipResult.data.class_id)
+        .single()
+
+      if (classRecord?.name) {
+        setClassName(classRecord.name)
+      }
+    }
+
+    setLoading(false)
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault()
+    setSavingProfile(true)
+    setProfileMessage('')
+
+    if (!firstName.trim() || !lastName.trim()) {
+      setProfileMessage('First name and last name are required.')
+      setSavingProfile(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        first_name: firstName.trim(),
+        last_name: lastName.trim()
+      })
+      .eq('id', profile.id)
+
+    if (error) {
+      setProfileMessage(error.message)
+      setSavingProfile(false)
+      return
+    }
+
+    setProfileMessage(
+      'Profile updated successfully. Your sidebar name will refresh the next time you sign in.'
+    )
+    setSavingProfile(false)
+  }
+
+  async function changePassword(event) {
+    event.preventDefault()
+    setSavingPassword(true)
+    setPasswordMessage('')
+
+    if (newPassword.length < 6) {
+      setPasswordMessage(
+        'Your new password must be at least 6 characters.'
+      )
+      setSavingPassword(false)
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('The passwords do not match.')
+      setSavingPassword(false)
+      return
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    })
+
+    if (error) {
+      setPasswordMessage(error.message)
+      setSavingPassword(false)
+      return
+    }
+
+    setNewPassword('')
+    setConfirmPassword('')
+    setPasswordMessage('Password changed successfully.')
+    setSavingPassword(false)
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Profile"
+        subtitle="Your Bible Study Academy account."
+      />
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your profile...</p>
+        </section>
+      ) : (
+        <>
+          <section className="dashboard-card">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '18px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div
+                style={{
+                  width: '72px',
+                  height: '72px',
+                  borderRadius: '50%',
+                  background: '#efe8ff',
+                  color: '#6b35c0',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  fontSize: '30px',
+                  fontWeight: '800'
+                }}
+              >
+                {firstName?.charAt(0) || '?'}
+              </div>
+
+              <div>
+                <h2 style={{ marginBottom: '4px' }}>
+                  {firstName} {lastName}
+                </h2>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  {profile.grade
+                    ? `${profile.grade} Grade • `
+                    : ''}
+                  {className}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Account Information</h2>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '16px',
+                marginTop: '18px'
+              }}
+            >
+              <div>
+                <label>Email</label>
+                <input
+                  value={email}
+                  disabled
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Grade</label>
+                <input
+                  value={profile.grade || '—'}
+                  disabled
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Bible Study Class</label>
+                <input
+                  value={className}
+                  disabled
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Edit Your Name</h2>
+
+            <form onSubmit={saveProfile}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px',
+                  marginTop: '18px'
+                }}
+              >
+                <div>
+                  <label>First Name</label>
+                  <input
+                    value={firstName}
+                    onChange={(event) => {
+                      setFirstName(event.target.value)
+                      setProfileMessage('')
+                    }}
+                    required
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label>Last Name</label>
+                  <input
+                    value={lastName}
+                    onChange={(event) => {
+                      setLastName(event.target.value)
+                      setProfileMessage('')
+                    }}
+                    required
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              {profileMessage && (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    background: profileMessage.includes('successfully')
+                      ? '#ecfdf3'
+                      : '#fef3f2',
+                    color: profileMessage.includes('successfully')
+                      ? '#087257'
+                      : '#b42318',
+                    fontWeight: '600'
+                  }}
+                >
+                  {profileMessage}
+                </div>
+              )}
+
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={savingProfile}
+                style={{
+                  width: 'auto',
+                  marginTop: '20px'
+                }}
+              >
+                {savingProfile ? 'Saving...' : 'Save Changes'}
+              </button>
+            </form>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Change Password</h2>
+
+            <form onSubmit={changePassword}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px',
+                  marginTop: '18px'
+                }}
+              >
+                <div>
+                  <label>New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => {
+                      setNewPassword(event.target.value)
+                      setPasswordMessage('')
+                    }}
+                    minLength="6"
+                    required
+                    disabled={savingPassword}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label>Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => {
+                      setConfirmPassword(event.target.value)
+                      setPasswordMessage('')
+                    }}
+                    minLength="6"
+                    required
+                    disabled={savingPassword}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              {passwordMessage && (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    background: passwordMessage.includes('successfully')
+                      ? '#ecfdf3'
+                      : '#fef3f2',
+                    color: passwordMessage.includes('successfully')
+                      ? '#087257'
+                      : '#b42318',
+                    fontWeight: '600'
+                  }}
+                >
+                  {passwordMessage}
+                </div>
+              )}
+
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={savingPassword}
+                style={{
+                  width: 'auto',
+                  marginTop: '20px'
+                }}
+              >
+                {savingPassword
+                  ? 'Changing...'
+                  : 'Change Password'}
+              </button>
+            </form>
           </section>
         </>
       )}
