@@ -1064,8 +1064,21 @@ function StudentMyProgress({ profile }) {
     verse: 0,
     physicalBible: 0,
     participationPoints: 0,
-    bonusPoints: 0
+    bonusPoints: 0,
+    attendanceDone: 0,
+    attendanceTotal: 0,
+    readingDone: 0,
+    readingTotal: 0,
+    homeworkDone: 0,
+    homeworkTotal: 0,
+    verseDone: 0,
+    verseTotal: 0,
+    bibleDone: 0,
+    bibleTotal: 0,
+    quizAverage: null,
+    quizzesTaken: 0
   })
+
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
 
@@ -1087,7 +1100,8 @@ function StudentMyProgress({ profile }) {
       bibleResult,
       participationResult,
       bonusResult,
-      rulesResult
+      rulesResult,
+      submissionsResult
     ] = await Promise.all([
       supabase
         .from('attendance')
@@ -1126,7 +1140,12 @@ function StudentMyProgress({ profile }) {
 
       supabase
         .from('point_rules')
-        .select('category, points')
+        .select('category, points'),
+
+      supabase
+        .from('homework_submissions')
+        .select('percentage')
+        .eq('student_id', studentId)
     ])
 
     const results = [
@@ -1137,7 +1156,8 @@ function StudentMyProgress({ profile }) {
       bibleResult,
       participationResult,
       bonusResult,
-      rulesResult
+      rulesResult,
+      submissionsResult
     ]
 
     const firstError =
@@ -1156,6 +1176,7 @@ function StudentMyProgress({ profile }) {
     const bibles = bibleResult.data || []
     const participation = participationResult.data || []
     const bonus = bonusResult.data || []
+    const submissions = submissionsResult.data || []
 
     const rules = {}
     ;(rulesResult.data || []).forEach((rule) => {
@@ -1172,16 +1193,11 @@ function StudentMyProgress({ profile }) {
           )
         : 0
 
-    const attendanceDone =
-      countTrue(attendance, 'present')
-    const readingDone =
-      countTrue(reading, 'completed')
-    const homeworkDone =
-      countTrue(homework, 'completed')
-    const verseDone =
-      countTrue(verses, 'completed')
-    const bibleDone =
-      countTrue(bibles, 'brought_bible')
+    const attendanceDone = countTrue(attendance, 'present')
+    const readingDone = countTrue(reading, 'completed')
+    const homeworkDone = countTrue(homework, 'completed')
+    const verseDone = countTrue(verses, 'completed')
+    const bibleDone = countTrue(bibles, 'brought_bible')
 
     const participationPoints = participation.reduce(
       (sum, record) =>
@@ -1204,6 +1220,16 @@ function StudentMyProgress({ profile }) {
       participationPoints +
       bonusPoints
 
+    const quizAverage = submissions.length
+      ? Math.round(
+          submissions.reduce(
+            (sum, submission) =>
+              sum + (Number(submission.percentage) || 0),
+            0
+          ) / submissions.length
+        )
+      : null
+
     setStats({
       points: totalPoints,
       attendance: percent(attendance, 'present'),
@@ -1212,11 +1238,41 @@ function StudentMyProgress({ profile }) {
       verse: percent(verses, 'completed'),
       physicalBible: percent(bibles, 'brought_bible'),
       participationPoints,
-      bonusPoints
+      bonusPoints,
+      attendanceDone,
+      attendanceTotal: attendance.length,
+      readingDone,
+      readingTotal: reading.length,
+      homeworkDone,
+      homeworkTotal: homework.length,
+      verseDone,
+      verseTotal: verses.length,
+      bibleDone,
+      bibleTotal: bibles.length,
+      quizAverage,
+      quizzesTaken: submissions.length
     })
 
     setLoading(false)
   }
+
+  const overallProgress = Math.round(
+    (
+      stats.attendance +
+      stats.reading +
+      stats.homework +
+      stats.verse +
+      stats.physicalBible
+    ) / 5
+  )
+
+  const strongest = [
+    ['Daily Reading', stats.reading],
+    ['Attendance', stats.attendance],
+    ['Homework', stats.homework],
+    ['Memory Verse', stats.verse],
+    ['Physical Bible', stats.physicalBible]
+  ].sort((a, b) => b[1] - a[1])[0]
 
   return (
     <>
@@ -1246,29 +1302,39 @@ function StudentMyProgress({ profile }) {
             />
 
             <StatCard
-              icon={<CheckCircle2 />}
-              label="Attendance"
-              value={`${stats.attendance}%`}
-              helper="Bible Study attendance"
-            />
-
-            <StatCard
-              icon={<BookOpen />}
-              label="Daily Reading"
-              value={`${stats.reading}%`}
-              helper="Reading completed"
-            />
-
-            <StatCard
               icon={<Star />}
-              label="Bonus Points"
-              value={stats.bonusPoints}
-              helper="Extra points earned"
+              label="Overall Progress"
+              value={`${overallProgress}%`}
+              helper="Across your main goals"
+            />
+
+            <StatCard
+              icon={<ClipboardCheck />}
+              label="Quiz Average"
+              value={
+                stats.quizAverage === null
+                  ? '—'
+                  : `${stats.quizAverage}%`
+              }
+              helper={`${stats.quizzesTaken} quiz${
+                stats.quizzesTaken === 1 ? '' : 'zes'
+              } completed`}
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Strongest Area"
+              value={strongest?.[0] || '—'}
+              helper={
+                strongest
+                  ? `${strongest[1]}% complete`
+                  : 'Keep going!'
+              }
             />
           </div>
 
           <section className="dashboard-card">
-            <h2>My Progress</h2>
+            <h2>Progress Overview</h2>
 
             <div className="progress-grid">
               <ProgressCircle
@@ -1300,6 +1366,81 @@ function StudentMyProgress({ profile }) {
                 value={stats.physicalBible}
                 emoji="📕"
               />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>My Numbers</h2>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(190px, 1fr))',
+                gap: '14px',
+                marginTop: '18px'
+              }}
+            >
+              {[
+                [
+                  '📖',
+                  'Readings Completed',
+                  `${stats.readingDone}/${stats.readingTotal}`
+                ],
+                [
+                  '⛪',
+                  'Fridays Present',
+                  `${stats.attendanceDone}/${stats.attendanceTotal}`
+                ],
+                [
+                  '✏️',
+                  'Homework Completed',
+                  `${stats.homeworkDone}/${stats.homeworkTotal}`
+                ],
+                [
+                  '🧠',
+                  'Verses Recited',
+                  `${stats.verseDone}/${stats.verseTotal}`
+                ],
+                [
+                  '📕',
+                  'Bibles Brought',
+                  `${stats.bibleDone}/${stats.bibleTotal}`
+                ]
+              ].map(([emoji, label, value]) => (
+                <div
+                  key={label}
+                  style={{
+                    border: '1px solid #ececf2',
+                    borderRadius: '14px',
+                    padding: '16px'
+                  }}
+                >
+                  <div style={{ fontSize: '24px' }}>
+                    {emoji}
+                  </div>
+
+                  <div
+                    style={{
+                      color: '#6b7280',
+                      fontSize: '12px',
+                      marginTop: '8px'
+                    }}
+                  >
+                    {label}
+                  </div>
+
+                  <strong
+                    style={{
+                      display: 'block',
+                      marginTop: '4px',
+                      fontSize: '20px'
+                    }}
+                  >
+                    {value}
+                  </strong>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -1361,7 +1502,6 @@ function StudentMyProgress({ profile }) {
     </>
   )
 }
-
 
 
 function StudentDailyReading({ profile }) {
