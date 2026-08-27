@@ -955,7 +955,6 @@ function ServantQuickEntry({ profile }) {
       supabase
         .from('bonus_points')
         .select('student_id, points, reason')
-        .eq('class_id', classId)
         .eq('bible_study_date', date)
         .in('student_id', studentIds)
     ])
@@ -1114,7 +1113,6 @@ function ServantQuickEntry({ profile }) {
           .from('bonus_points')
           .delete()
           .eq('student_id', student.id)
-          .eq('class_id', classId)
           .eq('bible_study_date', date)
 
         if (bonusDeleteError) throw bonusDeleteError
@@ -1127,7 +1125,6 @@ function ServantQuickEntry({ profile }) {
             .from('bonus_points')
             .insert({
               student_id: student.id,
-              class_id: classId,
               bible_study_date: date,
               points: bonusPoints,
               reason: bonusReason || 'Bonus',
