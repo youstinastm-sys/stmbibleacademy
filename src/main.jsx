@@ -533,7 +533,11 @@ function StudentDashboard({ profile }) {
   const [currentVerse, setCurrentVerse] = useState(null)
   const [nextHomework, setNextHomework] = useState(null)
   const [todayReading, setTodayReading] = useState(null)
+  const [todayReadingDone, setTodayReadingDone] = useState(false)
+  const [homeworkSubmitted, setHomeworkSubmitted] = useState(false)
+  const [verseCompleted, setVerseCompleted] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     loadDashboard()
@@ -564,18 +568,39 @@ function StudentDashboard({ profile }) {
     return streak
   }
 
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
   async function loadDashboard() {
     setLoading(true)
+    setMessage('')
 
     const studentId = profile.id
     const today = new Date().toISOString().slice(0, 10)
 
-    const { data: membership } = await supabase
-      .from('class_members')
-      .select('class_id')
-      .eq('student_id', studentId)
-      .limit(1)
-      .maybeSingle()
+    const { data: membership, error: membershipError } =
+      await supabase
+        .from('class_members')
+        .select('class_id')
+        .eq('student_id', studentId)
+        .limit(1)
+        .maybeSingle()
+
+    if (membershipError) {
+      setMessage(membershipError.message)
+      setLoading(false)
+      return
+    }
 
     const classId = membership?.class_id || null
 
@@ -630,6 +655,23 @@ function StudentDashboard({ profile }) {
         .select('category, points')
     ])
 
+    const firstError = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ].find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
     const attendance = attendanceResult.data || []
     const reading = readingResult.data || []
     const homework = homeworkResult.data || []
@@ -653,7 +695,7 @@ function StudentDashboard({ profile }) {
     const attendanceCompleted = countTrue(attendance, 'present')
     const readingCompleted = countTrue(reading, 'completed')
     const homeworkCompleted = countTrue(homework, 'completed')
-    const verseCompleted = countTrue(verses, 'completed')
+    const verseCompletedCount = countTrue(verses, 'completed')
     const bibleCompleted = countTrue(physicalBible, 'brought_bible')
 
     const participationPoints = participation.reduce(
@@ -670,7 +712,7 @@ function StudentDashboard({ profile }) {
       attendanceCompleted * (pointRules.attendance || 0) +
       readingCompleted * (pointRules.daily_reading || 0) +
       homeworkCompleted * (pointRules.homework || 0) +
-      verseCompleted * (pointRules.memory_verse || 0) +
+      verseCompletedCount * (pointRules.memory_verse || 0) +
       bibleCompleted * (pointRules.physical_bible || 0) +
       participationPoints +
       bonusPoints
@@ -683,7 +725,7 @@ function StudentDashboard({ profile }) {
       ),
       reading: percentage(readingCompleted, reading.length),
       homework: percentage(homeworkCompleted, homework.length),
-      verse: percentage(verseCompleted, verses.length),
+      verse: percentage(verseCompletedCount, verses.length),
       physicalBible: percentage(
         bibleCompleted,
         physicalBible.length
@@ -692,40 +734,85 @@ function StudentDashboard({ profile }) {
       completedReadings: readingCompleted
     })
 
+    setTodayReadingDone(
+      reading.some(
+        (record) =>
+          record.reading_date === today &&
+          record.completed === true
+      )
+    )
+
     if (classId) {
-      const [verseResult, homeworkQuizResult, readingAssignmentResult] =
-        await Promise.all([
-          supabase
-            .from('memory_verse_assignments')
-            .select(
-              'id, bible_study_date, verse_reference, verse_text'
-            )
-            .eq('class_id', classId)
-            .gte('bible_study_date', today)
-            .order('bible_study_date', { ascending: true })
-            .limit(1)
-            .maybeSingle(),
+      const [
+        verseResult,
+        homeworkQuizResult,
+        readingAssignmentResult
+      ] = await Promise.all([
+        supabase
+          .from('memory_verse_assignments')
+          .select(
+            'id, bible_study_date, verse_reference, verse_text'
+          )
+          .eq('class_id', classId)
+          .gte('bible_study_date', today)
+          .order('bible_study_date', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
 
-          supabase
-            .from('homework_quizzes')
-            .select('id, title, bible_study_date, due_date')
-            .eq('class_id', classId)
-            .gte('due_date', today)
-            .order('due_date', { ascending: true })
-            .limit(1)
-            .maybeSingle(),
+        supabase
+          .from('homework_quizzes')
+          .select('id, title, bible_study_date, due_date')
+          .eq('class_id', classId)
+          .gte('due_date', today)
+          .order('due_date', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
 
-          supabase
-            .from('daily_reading_assignments')
-            .select('id, reading_date, passage, title')
-            .eq('class_id', classId)
-            .eq('reading_date', today)
-            .maybeSingle()
-        ])
+        supabase
+          .from('reading_assignments')
+          .select('id, reading_date, passage, title')
+          .eq('class_id', classId)
+          .eq('reading_date', today)
+          .maybeSingle()
+      ])
 
-      setCurrentVerse(verseResult.data || null)
-      setNextHomework(homeworkQuizResult.data || null)
-      setTodayReading(readingAssignmentResult.data || null)
+      const currentVerseAssignment = verseResult.data || null
+      const currentHomework = homeworkQuizResult.data || null
+      const currentReading = readingAssignmentResult.data || null
+
+      setCurrentVerse(currentVerseAssignment)
+      setNextHomework(currentHomework)
+      setTodayReading(currentReading)
+
+      if (currentHomework?.id) {
+        const { data: submission } = await supabase
+          .from('homework_submissions')
+          .select('id')
+          .eq('quiz_id', currentHomework.id)
+          .eq('student_id', studentId)
+          .maybeSingle()
+
+        setHomeworkSubmitted(Boolean(submission))
+      } else {
+        setHomeworkSubmitted(false)
+      }
+
+      if (currentVerseAssignment?.bible_study_date) {
+        const { data: verseRecord } = await supabase
+          .from('memory_verses')
+          .select('completed')
+          .eq('student_id', studentId)
+          .eq('class_id', classId)
+          .eq(
+            'bible_study_date',
+            currentVerseAssignment.bible_study_date
+          )
+          .maybeSingle()
+
+        setVerseCompleted(verseRecord?.completed === true)
+      } else {
+        setVerseCompleted(false)
+      }
     }
 
     setLoading(false)
@@ -741,12 +828,49 @@ function StudentDashboard({ profile }) {
     ) / 5
   )
 
+  const weeklyTasks = [
+    {
+      label: "Today's Reading",
+      completed: todayReading ? todayReadingDone : null,
+      detail:
+        todayReading?.passage ||
+        'No reading assigned today',
+      icon: '📖'
+    },
+    {
+      label: 'Homework',
+      completed: nextHomework ? homeworkSubmitted : null,
+      detail: nextHomework
+        ? `${nextHomework.title} • Due ${prettyDate(
+            nextHomework.due_date
+          )}`
+        : 'No upcoming homework',
+      icon: '✏️'
+    },
+    {
+      label: 'Memory Verse',
+      completed: currentVerse ? verseCompleted : null,
+      detail: currentVerse
+        ? `${currentVerse.verse_reference} • For ${prettyDate(
+            currentVerse.bible_study_date
+          )}`
+        : 'No upcoming memory verse',
+      icon: '🧠'
+    }
+  ]
+
   return (
     <>
       <DashboardHeader
         title={`Welcome back, ${profile.first_name}! 👋`}
-        subtitle="Here's what is happening in Bible Study Academy."
+        subtitle="Here’s what is happening in Bible Study Academy."
       />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
 
       <div
         className="scripture-banner"
@@ -796,7 +920,7 @@ function StudentDashboard({ profile }) {
       </div>
 
       <section className="dashboard-card">
-        <h2>This Week</h2>
+        <h2>My Week</h2>
 
         {loading ? (
           <p>Loading your week...</p>
@@ -805,89 +929,74 @@ function StudentDashboard({ profile }) {
             style={{
               display: 'grid',
               gridTemplateColumns:
-                'repeat(auto-fit, minmax(230px, 1fr))',
-              gap: '16px',
+                'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
               marginTop: '18px'
             }}
           >
-            <div
-              style={{
-                border: '1px solid #ececf2',
-                borderRadius: '16px',
-                padding: '18px'
-              }}
-            >
-              <BookOpen size={22} />
-              <h3 style={{ marginBottom: '6px' }}>
-                Today's Reading
-              </h3>
-              <strong style={{ color: '#6b35c0' }}>
-                {todayReading?.passage || 'No reading assigned today'}
-              </strong>
-              {todayReading?.title && (
-                <p
+            {weeklyTasks.map((task) => (
+              <div
+                key={task.label}
+                style={{
+                  border:
+                    task.completed === true
+                      ? '1px solid #b7ead5'
+                      : '1px solid #ececf2',
+                  background:
+                    task.completed === true
+                      ? '#f3fcf8'
+                      : 'white',
+                  borderRadius: '16px',
+                  padding: '18px'
+                }}
+              >
+                <div
                   style={{
-                    color: '#6b7280',
-                    marginBottom: 0
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    alignItems: 'flex-start'
                   }}
                 >
-                  {todayReading.title}
-                </p>
-              )}
-            </div>
+                  <span style={{ fontSize: '25px' }}>
+                    {task.icon}
+                  </span>
 
-            <div
-              style={{
-                border: '1px solid #ececf2',
-                borderRadius: '16px',
-                padding: '18px'
-              }}
-            >
-              <ClipboardCheck size={22} />
-              <h3 style={{ marginBottom: '6px' }}>
-                Next Homework
-              </h3>
-              <strong style={{ color: '#6b35c0' }}>
-                {nextHomework?.title || 'No upcoming homework'}
-              </strong>
-              {nextHomework?.due_date && (
-                <p
-                  style={{
-                    color: '#6b7280',
-                    marginBottom: 0
-                  }}
-                >
-                  Due {nextHomework.due_date}
-                </p>
-              )}
-            </div>
+                  {task.completed !== null && (
+                    <span
+                      style={{
+                        padding: '5px 9px',
+                        borderRadius: '999px',
+                        fontSize: '11px',
+                        fontWeight: '800',
+                        background: task.completed
+                          ? '#dcfaeb'
+                          : '#f2f0f7',
+                        color: task.completed
+                          ? '#087257'
+                          : '#6b7280'
+                      }}
+                    >
+                      {task.completed ? 'DONE ✓' : 'TO DO'}
+                    </span>
+                  )}
+                </div>
 
-            <div
-              style={{
-                border: '1px solid #ececf2',
-                borderRadius: '16px',
-                padding: '18px'
-              }}
-            >
-              <GraduationCap size={22} />
-              <h3 style={{ marginBottom: '6px' }}>
-                Memory Verse
-              </h3>
-              <strong style={{ color: '#6b35c0' }}>
-                {currentVerse?.verse_reference ||
-                  'No verse assigned yet'}
-              </strong>
-              {currentVerse?.bible_study_date && (
+                <h3 style={{ marginBottom: '7px' }}>
+                  {task.label}
+                </h3>
+
                 <p
                   style={{
                     color: '#6b7280',
-                    marginBottom: 0
+                    margin: 0,
+                    lineHeight: 1.45
                   }}
                 >
-                  For {currentVerse.bible_study_date}
+                  {task.detail}
                 </p>
-              )}
-            </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -933,7 +1042,7 @@ function StudentDashboard({ profile }) {
           <h3>Keep Building Your Streak 🔥</h3>
 
           <p>
-            You've completed {stats.completedReadings} Bible reading
+            You’ve completed {stats.completedReadings} Bible reading
             {stats.completedReadings === 1 ? '' : 's'} so far.
             Keep reading and collecting your SPACE PETS gems.
           </p>
