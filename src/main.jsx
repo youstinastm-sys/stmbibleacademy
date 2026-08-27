@@ -11647,105 +11647,451 @@ function ServantQuickEntry({ profile }) {
 
 function AdminDashboard() {
   const [classes, setClasses] = useState([])
-  const [students, setStudents] = useState(0)
-  const [servants, setServants] = useState(0)
+  const [students, setStudents] = useState([])
+  const [servants, setServants] = useState([])
+  const [attendance, setAttendance] = useState([])
+  const [reading, setReading] = useState([])
+  const [homework, setHomework] = useState([])
+  const [verses, setVerses] = useState([])
+  const [bibles, setBibles] = useState([])
+  const [participation, setParticipation] = useState([])
+  const [bonus, setBonus] = useState([])
+  const [rules, setRules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
-    loadAdminData()
+    loadAdminDashboard()
   }, [])
 
-  async function loadAdminData() {
-    const [classesResult, profilesResult] =
-      await Promise.all([
-        supabase
-          .from('classes')
-          .select('*')
-          .eq('active', true),
+  async function loadAdminDashboard() {
+    setLoading(true)
+    setMessage('')
 
-        supabase
-          .from('profiles')
-          .select('role')
-      ])
+    const [
+      classesResult,
+      studentsResult,
+      servantsResult,
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      biblesResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name, grade_group, active')
+        .eq('active', true)
+        .order('id'),
 
-    const classData = classesResult.data || []
-    const profiles = profilesResult.data || []
+      supabase
+        .from('profiles')
+        .select('id, first_name, last_name, grade, active')
+        .eq('role', 'student')
+        .eq('active', true),
 
-    setClasses(classData)
+      supabase
+        .from('profiles')
+        .select('id, first_name, last_name, active')
+        .eq('role', 'servant')
+        .eq('active', true),
 
-    setStudents(
-      profiles.filter(
-        (profile) => profile.role === 'student'
-      ).length
-    )
+      supabase
+        .from('attendance')
+        .select('student_id, class_id, bible_study_date, present'),
 
-    setServants(
-      profiles.filter(
-        (profile) => profile.role === 'servant'
-      ).length
-    )
+      supabase
+        .from('daily_reading')
+        .select('student_id, reading_date, completed'),
+
+      supabase
+        .from('homework')
+        .select('student_id, class_id, bible_study_date, completed'),
+
+      supabase
+        .from('memory_verses')
+        .select('student_id, class_id, bible_study_date, completed'),
+
+      supabase
+        .from('physical_bible')
+        .select('student_id, class_id, bible_study_date, brought_bible'),
+
+      supabase
+        .from('participation')
+        .select('student_id, class_id, bible_study_date, points'),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, class_id, bible_study_date, points'),
+
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const results = [
+      classesResult,
+      studentsResult,
+      servantsResult,
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      biblesResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ]
+
+    const firstError = results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    setClasses(classesResult.data || [])
+    setStudents(studentsResult.data || [])
+    setServants(servantsResult.data || [])
+    setAttendance(attendanceResult.data || [])
+    setReading(readingResult.data || [])
+    setHomework(homeworkResult.data || [])
+    setVerses(versesResult.data || [])
+    setBibles(biblesResult.data || [])
+    setParticipation(participationResult.data || [])
+    setBonus(bonusResult.data || [])
+    setRules(rulesResult.data || [])
+
+    setLoading(false)
   }
+
+  function countTrue(records, field) {
+    return records.filter((record) => record[field] === true).length
+  }
+
+  function percent(done, total) {
+    return total ? Math.round((done / total) * 100) : 0
+  }
+
+  const pointRules = {}
+  rules.forEach((rule) => {
+    pointRules[rule.category] = Number(rule.points) || 0
+  })
+
+  const attendanceDone = countTrue(attendance, 'present')
+  const readingDone = countTrue(reading, 'completed')
+  const homeworkDone = countTrue(homework, 'completed')
+  const verseDone = countTrue(verses, 'completed')
+  const bibleDone = countTrue(bibles, 'brought_bible')
+
+  const attendancePercent = percent(
+    attendanceDone,
+    attendance.length
+  )
+
+  const readingPercent = percent(readingDone, reading.length)
+
+  const homeworkPercent = percent(homeworkDone, homework.length)
+
+  const versePercent = percent(verseDone, verses.length)
+
+  const biblePercent = percent(bibleDone, bibles.length)
+
+  const participationPoints = participation.reduce(
+    (sum, item) => sum + (Number(item.points) || 0),
+    0
+  )
+
+  const bonusPoints = bonus.reduce(
+    (sum, item) => sum + (Number(item.points) || 0),
+    0
+  )
+
+  const totalPoints =
+    attendanceDone * (pointRules.attendance || 0) +
+    readingDone * (pointRules.daily_reading || 0) +
+    homeworkDone * (pointRules.homework || 0) +
+    verseDone * (pointRules.memory_verse || 0) +
+    bibleDone * (pointRules.physical_bible || 0) +
+    participationPoints +
+    bonusPoints
+
+  const overallProgress = Math.round(
+    (
+      attendancePercent +
+      readingPercent +
+      homeworkPercent +
+      versePercent +
+      biblePercent
+    ) / 5
+  )
+
+  const classRows = classes.map((classItem) => {
+    const classAttendance = attendance.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const classHomework = homework.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const classVerses = verses.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const classBibles = bibles.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const classParticipation = participation.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const classBonus = bonus.filter(
+      (record) => Number(record.class_id) === Number(classItem.id)
+    )
+
+    const attendanceCount = countTrue(classAttendance, 'present')
+    const homeworkCount = countTrue(classHomework, 'completed')
+    const verseCount = countTrue(classVerses, 'completed')
+    const bibleCount = countTrue(classBibles, 'brought_bible')
+
+    const points =
+      attendanceCount * (pointRules.attendance || 0) +
+      homeworkCount * (pointRules.homework || 0) +
+      verseCount * (pointRules.memory_verse || 0) +
+      bibleCount * (pointRules.physical_bible || 0) +
+      classParticipation.reduce(
+        (sum, row) => sum + (Number(row.points) || 0),
+        0
+      ) +
+      classBonus.reduce(
+        (sum, row) => sum + (Number(row.points) || 0),
+        0
+      )
+
+    return {
+      ...classItem,
+      attendance: percent(
+        attendanceCount,
+        classAttendance.length
+      ),
+      homework: percent(
+        homeworkCount,
+        classHomework.length
+      ),
+      verse: percent(
+        verseCount,
+        classVerses.length
+      ),
+      bible: percent(
+        bibleCount,
+        classBibles.length
+      ),
+      points
+    }
+  })
+
+  const latestAttendanceDate =
+    attendance
+      .map((record) => record.bible_study_date)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || null
+
+  const latestAttendanceRows = latestAttendanceDate
+    ? attendance.filter(
+        (record) =>
+          record.bible_study_date === latestAttendanceDate
+      )
+    : []
+
+  const latestPresent = countTrue(
+    latestAttendanceRows,
+    'present'
+  )
 
   return (
     <>
       <DashboardHeader
         title="Admin Dashboard"
-        subtitle="Overview of Bible Study Academy"
+        subtitle="Bible Study Academy overview"
       />
 
-      <div className="stats-grid">
-        <StatCard
-          icon={<LayoutDashboard />}
-          label="Classes"
-          value={classes.length}
-          helper="Active groups"
-        />
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
 
-        <StatCard
-          icon={<Users />}
-          label="Students"
-          value={students}
-          helper="Total students"
-        />
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading academy dashboard...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<BookOpen />}
+              label="Classes"
+              value={classes.length}
+              helper="Active classes"
+            />
 
-        <StatCard
-          icon={<UserRound />}
-          label="Servants"
-          value={servants}
-          helper="Total servants"
-        />
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={students.length}
+              helper="Active students"
+            />
 
-        <StatCard
-          icon={<Trophy />}
-          label="Points Awarded"
-          value="—"
-          helper="This week"
-        />
-      </div>
+            <StatCard
+              icon={<UserRound />}
+              label="Servants"
+              value={servants.length}
+              helper="Active servants"
+            />
 
-      <section className="dashboard-card">
-        <h2>Classes Overview</h2>
+            <StatCard
+              icon={<Trophy />}
+              label="Points Awarded"
+              value={totalPoints}
+              helper="Academy total"
+            />
+          </div>
 
-        <div className="classes-grid">
-          {classes.map((classItem) => (
-            <div
-              className="class-card"
-              key={classItem.id}
-            >
-              <div className="class-icon">
-                <BookOpen size={22} />
-              </div>
+          <section className="dashboard-card">
+            <h2>Academy Progress</h2>
 
-              <div>
-                <strong>{classItem.name}</strong>
-                <span>{classItem.grade_group}</span>
-              </div>
+            <div className="progress-grid">
+              <ProgressCircle
+                label="Attendance"
+                value={attendancePercent}
+                emoji="⛪"
+              />
+              <ProgressCircle
+                label="Daily Reading"
+                value={readingPercent}
+                emoji="📖"
+              />
+              <ProgressCircle
+                label="Homework"
+                value={homeworkPercent}
+                emoji="✏️"
+              />
+              <ProgressCircle
+                label="Memory Verse"
+                value={versePercent}
+                emoji="🧠"
+              />
+              <ProgressCircle
+                label="Physical Bible"
+                value={biblePercent}
+                emoji="📕"
+              />
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Latest Friday Snapshot</h2>
+
+            <div className="stats-grid">
+              <StatCard
+                icon={<CalendarDays />}
+                label="Latest Date"
+                value={latestAttendanceDate || '—'}
+                helper="Most recent attendance"
+              />
+
+              <StatCard
+                icon={<CheckCircle2 />}
+                label="Present"
+                value={
+                  latestAttendanceDate
+                    ? `${latestPresent}/${latestAttendanceRows.length}`
+                    : '—'
+                }
+                helper="Across all classes"
+              />
+
+              <StatCard
+                icon={<BarChart3 />}
+                label="Attendance"
+                value={
+                  latestAttendanceRows.length
+                    ? `${percent(
+                        latestPresent,
+                        latestAttendanceRows.length
+                      )}%`
+                    : '—'
+                }
+                helper="Latest Friday"
+              />
+
+              <StatCard
+                icon={<Star />}
+                label="Overall Progress"
+                value={`${overallProgress}%`}
+                helper="Across core categories"
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Classes Overview</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th>Grade Group</th>
+                    <th>Attendance</th>
+                    <th>Homework</th>
+                    <th>Memory Verse</th>
+                    <th>Physical Bible</th>
+                    <th>Points</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {classRows.map((classItem) => (
+                    <tr key={classItem.id}>
+                      <td>
+                        <strong>{classItem.name}</strong>
+                      </td>
+                      <td>{classItem.grade_group || '—'}</td>
+                      <td>{classItem.attendance}%</td>
+                      <td>{classItem.homework}%</td>
+                      <td>{classItem.verse}%</td>
+                      <td>{classItem.bible}%</td>
+                      <td>
+                        <strong>{classItem.points}</strong>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!classRows.length && (
+                    <tr>
+                      <td colSpan="7">
+                        No active classes yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </>
   )
 }
+
 
 function AdminClasses() {
   const [classes, setClasses] = useState([])
