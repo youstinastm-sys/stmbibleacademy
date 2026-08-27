@@ -308,6 +308,10 @@ function DashboardShell({ profile }) {
         return <StudentDashboard profile={profile} />
       }
 
+      if (activePage === 'My Progress') {
+        return <StudentMyProgress profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -650,6 +654,315 @@ function StudentDashboard({ profile }) {
     </>
   )
 }
+
+
+function StudentMyProgress({ profile }) {
+  const [stats, setStats] = useState({
+    points: 0,
+    attendance: 0,
+    reading: 0,
+    homework: 0,
+    verse: 0,
+    physicalBible: 0,
+    participationPoints: 0,
+    bonusPoints: 0
+  })
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadProgress()
+  }, [])
+
+  async function loadProgress() {
+    setLoading(true)
+    setMessage('')
+
+    const studentId = profile.id
+
+    const [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('present')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('daily_reading')
+        .select('completed')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('homework')
+        .select('completed')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('memory_verses')
+        .select('completed')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('physical_bible')
+        .select('brought_bible')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('participation')
+        .select('points')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('bonus_points')
+        .select('points')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const results = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ]
+
+    const firstError =
+      results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    const attendance = attendanceResult.data || []
+    const reading = readingResult.data || []
+    const homework = homeworkResult.data || []
+    const verses = versesResult.data || []
+    const bibles = bibleResult.data || []
+    const participation = participationResult.data || []
+    const bonus = bonusResult.data || []
+
+    const rules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      rules[rule.category] = Number(rule.points) || 0
+    })
+
+    const countTrue = (items, field) =>
+      items.filter((item) => item[field] === true).length
+
+    const percent = (items, field) =>
+      items.length
+        ? Math.round(
+            (countTrue(items, field) / items.length) * 100
+          )
+        : 0
+
+    const attendanceDone =
+      countTrue(attendance, 'present')
+    const readingDone =
+      countTrue(reading, 'completed')
+    const homeworkDone =
+      countTrue(homework, 'completed')
+    const verseDone =
+      countTrue(verses, 'completed')
+    const bibleDone =
+      countTrue(bibles, 'brought_bible')
+
+    const participationPoints = participation.reduce(
+      (sum, record) =>
+        sum + (Number(record.points) || 0),
+      0
+    )
+
+    const bonusPoints = bonus.reduce(
+      (sum, record) =>
+        sum + (Number(record.points) || 0),
+      0
+    )
+
+    const totalPoints =
+      attendanceDone * (rules.attendance || 0) +
+      readingDone * (rules.daily_reading || 0) +
+      homeworkDone * (rules.homework || 0) +
+      verseDone * (rules.memory_verse || 0) +
+      bibleDone * (rules.physical_bible || 0) +
+      participationPoints +
+      bonusPoints
+
+    setStats({
+      points: totalPoints,
+      attendance: percent(attendance, 'present'),
+      reading: percent(reading, 'completed'),
+      homework: percent(homework, 'completed'),
+      verse: percent(verses, 'completed'),
+      physicalBible: percent(bibles, 'brought_bible'),
+      participationPoints,
+      bonusPoints
+    })
+
+    setLoading(false)
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="My Progress"
+        subtitle="See how you're growing throughout Bible Study."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your progress...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<Trophy />}
+              label="Total Points"
+              value={stats.points}
+              helper="All points earned"
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Attendance"
+              value={`${stats.attendance}%`}
+              helper="Bible Study attendance"
+            />
+
+            <StatCard
+              icon={<BookOpen />}
+              label="Daily Reading"
+              value={`${stats.reading}%`}
+              helper="Reading completed"
+            />
+
+            <StatCard
+              icon={<Star />}
+              label="Bonus Points"
+              value={stats.bonusPoints}
+              helper="Extra points earned"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>My Progress</h2>
+
+            <div className="progress-grid">
+              <ProgressCircle
+                label="Daily Reading"
+                value={stats.reading}
+                emoji="📖"
+              />
+
+              <ProgressCircle
+                label="Attendance"
+                value={stats.attendance}
+                emoji="⛪"
+              />
+
+              <ProgressCircle
+                label="Homework"
+                value={stats.homework}
+                emoji="✏️"
+              />
+
+              <ProgressCircle
+                label="Memory Verse"
+                value={stats.verse}
+                emoji="🧠"
+              />
+
+              <ProgressCircle
+                label="Physical Bible"
+                value={stats.physicalBible}
+                emoji="📕"
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Points Breakdown</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Progress / Points</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr>
+                    <td>Daily Reading</td>
+                    <td>{stats.reading}%</td>
+                  </tr>
+                  <tr>
+                    <td>Attendance</td>
+                    <td>{stats.attendance}%</td>
+                  </tr>
+                  <tr>
+                    <td>Homework</td>
+                    <td>{stats.homework}%</td>
+                  </tr>
+                  <tr>
+                    <td>Memory Verse</td>
+                    <td>{stats.verse}%</td>
+                  </tr>
+                  <tr>
+                    <td>Physical Bible</td>
+                    <td>{stats.physicalBible}%</td>
+                  </tr>
+                  <tr>
+                    <td>Participation</td>
+                    <td>{stats.participationPoints} pts</td>
+                  </tr>
+                  <tr>
+                    <td>Bonus</td>
+                    <td>{stats.bonusPoints} pts</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <strong>Total</strong>
+                    </td>
+                    <td>
+                      <strong>{stats.points} pts</strong>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
 
 function ServantDashboard({ profile }) {
   const [className, setClassName] =
