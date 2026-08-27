@@ -2346,13 +2346,15 @@ function ServantDailyReadings({ profile }) {
 function ServantWeeklyAssignments({ profile }) {
   const today = new Date().toISOString().slice(0, 10)
 
-  const emptyQuestion = () => ({
+  const emptyQuestion = (type = 'multiple_choice') => ({
+    question_type: type,
     question_text: '',
-    choice_a: '',
-    choice_b: '',
-    choice_c: '',
-    choice_d: '',
-    correct_answer: 'A'
+    choices: ['', '', '', ''],
+    correct_answer: type === 'true_false' ? 'true' : '',
+    matching_pairs: [
+      { left: '', right: '' },
+      { left: '', right: '' }
+    ]
   })
 
   const [classId, setClassId] = useState(null)
@@ -2471,6 +2473,90 @@ function ServantWeeklyAssignments({ profile }) {
     setMessage('')
   }
 
+  function changeQuestionType(index, type) {
+    setQuestions((current) =>
+      current.map((question, questionIndex) => {
+        if (questionIndex !== index) return question
+
+        return {
+          ...emptyQuestion(type),
+          question_text: question.question_text
+        }
+      })
+    )
+    setMessage('')
+  }
+
+  function updateChoice(questionIndex, choiceIndex, value) {
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== questionIndex) return question
+
+        const nextChoices = [...question.choices]
+        nextChoices[choiceIndex] = value
+
+        return {
+          ...question,
+          choices: nextChoices
+        }
+      })
+    )
+    setMessage('')
+  }
+
+  function updateMatchingPair(questionIndex, pairIndex, field, value) {
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== questionIndex) return question
+
+        const nextPairs = question.matching_pairs.map((pair, i) =>
+          i === pairIndex ? { ...pair, [field]: value } : pair
+        )
+
+        return {
+          ...question,
+          matching_pairs: nextPairs
+        }
+      })
+    )
+    setMessage('')
+  }
+
+  function addMatchingPair(questionIndex) {
+    setQuestions((current) =>
+      current.map((question, index) =>
+        index === questionIndex
+          ? {
+              ...question,
+              matching_pairs: [
+                ...question.matching_pairs,
+                { left: '', right: '' }
+              ]
+            }
+          : question
+      )
+    )
+  }
+
+  function removeMatchingPair(questionIndex, pairIndex) {
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== questionIndex) return question
+
+        if (question.matching_pairs.length <= 2) {
+          return question
+        }
+
+        return {
+          ...question,
+          matching_pairs: question.matching_pairs.filter(
+            (_, i) => i !== pairIndex
+          )
+        }
+      })
+    )
+  }
+
   function addQuestion() {
     setQuestions((current) => [
       ...current,
@@ -2492,6 +2578,68 @@ function ServantWeeklyAssignments({ profile }) {
     setEditingQuizId(null)
   }
 
+  function questionIsComplete(question) {
+    if (!question.question_text.trim()) return false
+
+    if (question.question_type === 'multiple_choice') {
+      return (
+        question.choices.every((choice) => choice.trim()) &&
+        ['A', 'B', 'C', 'D'].includes(question.correct_answer)
+      )
+    }
+
+    if (question.question_type === 'true_false') {
+      return ['true', 'false'].includes(question.correct_answer)
+    }
+
+    if (question.question_type === 'fill_blank') {
+      return question.correct_answer.trim().length > 0
+    }
+
+    if (question.question_type === 'matching') {
+      return (
+        question.matching_pairs.length >= 2 &&
+        question.matching_pairs.every(
+          (pair) => pair.left.trim() && pair.right.trim()
+        )
+      )
+    }
+
+    return false
+  }
+
+  function buildQuestionData(question) {
+    if (question.question_type === 'multiple_choice') {
+      return {
+        choices: question.choices,
+        correct_answer: question.correct_answer
+      }
+    }
+
+    if (question.question_type === 'true_false') {
+      return {
+        correct_answer: question.correct_answer
+      }
+    }
+
+    if (question.question_type === 'fill_blank') {
+      return {
+        accepted_answers: [question.correct_answer.trim()]
+      }
+    }
+
+    if (question.question_type === 'matching') {
+      return {
+        pairs: question.matching_pairs.map((pair) => ({
+          left: pair.left.trim(),
+          right: pair.right.trim()
+        }))
+      }
+    }
+
+    return {}
+  }
+
   async function saveQuiz(event) {
     event.preventDefault()
     setSavingQuiz(true)
@@ -2503,17 +2651,9 @@ function ServantWeeklyAssignments({ profile }) {
       return
     }
 
-    const incompleteQuestion = questions.find((question) =>
-      !question.question_text.trim() ||
-      !question.choice_a.trim() ||
-      !question.choice_b.trim() ||
-      !question.choice_c.trim() ||
-      !question.choice_d.trim()
-    )
-
-    if (incompleteQuestion) {
+    if (!questions.every(questionIsComplete)) {
       setMessage(
-        'Every quiz question needs the question, all 4 answer choices, and a correct answer.'
+        'Please finish every question and its correct answer before saving.'
       )
       setSavingQuiz(false)
       return
@@ -2572,12 +2712,9 @@ function ServantWeeklyAssignments({ profile }) {
       const questionRows = questions.map((question, index) => ({
         quiz_id: quizId,
         question_order: index + 1,
+        question_type: question.question_type,
         question_text: question.question_text.trim(),
-        choice_a: question.choice_a.trim(),
-        choice_b: question.choice_b.trim(),
-        choice_c: question.choice_c.trim(),
-        choice_d: question.choice_d.trim(),
-        correct_answer: question.correct_answer
+        question_data: buildQuestionData(question)
       }))
 
       const { error: questionError } = await supabase
@@ -2599,13 +2736,69 @@ function ServantWeeklyAssignments({ profile }) {
     setSavingQuiz(false)
   }
 
+  function normalizeLoadedQuestion(row) {
+    const type = row.question_type || 'multiple_choice'
+    const data = row.question_data || {}
+
+    if (type === 'multiple_choice') {
+      return {
+        question_type: type,
+        question_text: row.question_text || '',
+        choices: Array.isArray(data.choices)
+          ? [...data.choices, '', '', '', ''].slice(0, 4)
+          : ['', '', '', ''],
+        correct_answer: data.correct_answer || 'A',
+        matching_pairs: [
+          { left: '', right: '' },
+          { left: '', right: '' }
+        ]
+      }
+    }
+
+    if (type === 'true_false') {
+      return {
+        ...emptyQuestion(type),
+        question_text: row.question_text || '',
+        correct_answer: data.correct_answer || 'true'
+      }
+    }
+
+    if (type === 'fill_blank') {
+      return {
+        ...emptyQuestion(type),
+        question_text: row.question_text || '',
+        correct_answer:
+          data.accepted_answers?.[0] || ''
+      }
+    }
+
+    if (type === 'matching') {
+      return {
+        ...emptyQuestion(type),
+        question_text: row.question_text || '',
+        matching_pairs:
+          Array.isArray(data.pairs) && data.pairs.length
+            ? data.pairs.map((pair) => ({
+                left: pair.left || '',
+                right: pair.right || ''
+              }))
+            : [
+                { left: '', right: '' },
+                { left: '', right: '' }
+              ]
+      }
+    }
+
+    return emptyQuestion()
+  }
+
   async function editQuiz(quiz) {
     setMessage('')
 
     const { data: quizQuestions, error } = await supabase
       .from('homework_questions')
       .select(
-        'id, question_order, question_text, choice_a, choice_b, choice_c, choice_d, correct_answer'
+        'id, question_order, question_type, question_text, question_data'
       )
       .eq('quiz_id', quiz.id)
       .order('question_order', { ascending: true })
@@ -2620,19 +2813,10 @@ function ServantWeeklyAssignments({ profile }) {
     setQuizTitle(quiz.title || '')
     setQuizDueDate(quiz.due_date || '')
     setQuestions(
-      (quizQuestions || []).map((question) => ({
-        question_text: question.question_text || '',
-        choice_a: question.choice_a || '',
-        choice_b: question.choice_b || '',
-        choice_c: question.choice_c || '',
-        choice_d: question.choice_d || '',
-        correct_answer: question.correct_answer || 'A'
-      }))
+      (quizQuestions || []).length
+        ? quizQuestions.map(normalizeLoadedQuestion)
+        : [emptyQuestion()]
     )
-
-    if (!(quizQuestions || []).length) {
-      setQuestions([emptyQuestion()])
-    }
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -2747,7 +2931,7 @@ function ServantWeeklyAssignments({ profile }) {
     <>
       <DashboardHeader
         title="Weekly Assignments"
-        subtitle={`${className} • Create the weekly homework quiz and memory verse`}
+        subtitle={`${className} • Build the weekly homework quiz and assign the memory verse`}
       />
 
       {message && (
@@ -2780,7 +2964,6 @@ function ServantWeeklyAssignments({ profile }) {
             style={{ marginTop: '24px' }}
           >
             <h2>Week</h2>
-
             <div style={{ maxWidth: '260px' }}>
               <label>Bible Study Date</label>
               <input
@@ -2808,13 +2991,9 @@ function ServantWeeklyAssignments({ profile }) {
                 <h2 style={{ marginBottom: '4px' }}>
                   Homework Quiz
                 </h2>
-                <p
-                  style={{
-                    color: '#6b7280',
-                    margin: 0
-                  }}
-                >
-                  Create multiple-choice questions with one correct answer.
+                <p style={{ color: '#6b7280', margin: 0 }}>
+                  Mix multiple choice, true/false, fill in the blank,
+                  and matching questions.
                 </p>
               </div>
 
@@ -2892,31 +3071,72 @@ function ServantWeeklyAssignments({ profile }) {
                         justifyContent: 'space-between',
                         gap: '12px',
                         alignItems: 'center',
+                        flexWrap: 'wrap',
                         marginBottom: '14px'
                       }}
                     >
                       <strong>Question {index + 1}</strong>
 
-                      {questions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeQuestion(index)}
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'center',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        <select
+                          value={question.question_type}
+                          onChange={(event) =>
+                            changeQuestionType(
+                              index,
+                              event.target.value
+                            )
+                          }
                           disabled={savingQuiz}
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#b42318',
-                            fontWeight: '700',
-                            cursor: 'pointer'
-                          }}
                         >
-                          Remove
-                        </button>
-                      )}
+                          <option value="multiple_choice">
+                            Multiple Choice
+                          </option>
+                          <option value="true_false">
+                            True / False
+                          </option>
+                          <option value="fill_blank">
+                            Fill in the Blank
+                          </option>
+                          <option value="matching">
+                            Matching
+                          </option>
+                        </select>
+
+                        {questions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeQuestion(index)}
+                            disabled={savingQuiz}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#b42318',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div>
-                      <label>Question</label>
+                      <label>
+                        {question.question_type === 'fill_blank'
+                          ? 'Sentence / Question'
+                          : question.question_type === 'matching'
+                            ? 'Matching Instructions'
+                            : 'Question'}
+                      </label>
+
                       <textarea
                         value={question.question_text}
                         onChange={(event) =>
@@ -2929,7 +3149,13 @@ function ServantWeeklyAssignments({ profile }) {
                         rows="3"
                         required
                         disabled={savingQuiz}
-                        placeholder="Type the question..."
+                        placeholder={
+                          question.question_type === 'fill_blank'
+                            ? 'Example: Jesus was born in ________.'
+                            : question.question_type === 'matching'
+                              ? 'Example: Match each person with the correct event.'
+                              : 'Type the question...'
+                        }
                         style={{
                           width: '100%',
                           resize: 'vertical',
@@ -2941,66 +3167,223 @@ function ServantWeeklyAssignments({ profile }) {
                       />
                     </div>
 
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          'repeat(auto-fit, minmax(220px, 1fr))',
-                        gap: '12px',
-                        marginTop: '14px'
-                      }}
-                    >
-                      {[
-                        ['choice_a', 'A'],
-                        ['choice_b', 'B'],
-                        ['choice_c', 'C'],
-                        ['choice_d', 'D']
-                      ].map(([field, letter]) => (
-                        <div key={field}>
-                          <label>Choice {letter}</label>
-                          <input
-                            type="text"
-                            value={question[field]}
+                    {question.question_type === 'multiple_choice' && (
+                      <>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns:
+                              'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '12px',
+                            marginTop: '14px'
+                          }}
+                        >
+                          {['A', 'B', 'C', 'D'].map(
+                            (letter, choiceIndex) => (
+                              <div key={letter}>
+                                <label>Choice {letter}</label>
+                                <input
+                                  type="text"
+                                  value={
+                                    question.choices[choiceIndex]
+                                  }
+                                  onChange={(event) =>
+                                    updateChoice(
+                                      index,
+                                      choiceIndex,
+                                      event.target.value
+                                    )
+                                  }
+                                  required
+                                  disabled={savingQuiz}
+                                  style={{ width: '100%' }}
+                                />
+                              </div>
+                            )
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            maxWidth: '260px',
+                            marginTop: '14px'
+                          }}
+                        >
+                          <label>Correct Answer</label>
+                          <select
+                            value={question.correct_answer}
                             onChange={(event) =>
                               updateQuestion(
                                 index,
-                                field,
+                                'correct_answer',
                                 event.target.value
                               )
                             }
                             required
                             disabled={savingQuiz}
                             style={{ width: '100%' }}
-                          />
+                          >
+                            <option value="">
+                              Select answer
+                            </option>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                          </select>
                         </div>
-                      ))}
-                    </div>
+                      </>
+                    )}
 
-                    <div
-                      style={{
-                        maxWidth: '260px',
-                        marginTop: '14px'
-                      }}
-                    >
-                      <label>Correct Answer</label>
-                      <select
-                        value={question.correct_answer}
-                        onChange={(event) =>
-                          updateQuestion(
-                            index,
-                            'correct_answer',
-                            event.target.value
-                          )
-                        }
-                        disabled={savingQuiz}
-                        style={{ width: '100%' }}
+                    {question.question_type === 'true_false' && (
+                      <div
+                        style={{
+                          maxWidth: '260px',
+                          marginTop: '14px'
+                        }}
                       >
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                        <option value="D">D</option>
-                      </select>
-                    </div>
+                        <label>Correct Answer</label>
+                        <select
+                          value={question.correct_answer}
+                          onChange={(event) =>
+                            updateQuestion(
+                              index,
+                              'correct_answer',
+                              event.target.value
+                            )
+                          }
+                          disabled={savingQuiz}
+                          style={{ width: '100%' }}
+                        >
+                          <option value="true">True</option>
+                          <option value="false">False</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {question.question_type === 'fill_blank' && (
+                      <div
+                        style={{
+                          maxWidth: '420px',
+                          marginTop: '14px'
+                        }}
+                      >
+                        <label>Correct Answer</label>
+                        <input
+                          type="text"
+                          value={question.correct_answer}
+                          onChange={(event) =>
+                            updateQuestion(
+                              index,
+                              'correct_answer',
+                              event.target.value
+                            )
+                          }
+                          placeholder="Example: Bethlehem"
+                          required
+                          disabled={savingQuiz}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    )}
+
+                    {question.question_type === 'matching' && (
+                      <div style={{ marginTop: '16px' }}>
+                        <label>Matching Pairs</label>
+
+                        {question.matching_pairs.map(
+                          (pair, pairIndex) => (
+                            <div
+                              key={pairIndex}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns:
+                                  '1fr auto 1fr auto',
+                                gap: '10px',
+                                alignItems: 'center',
+                                marginTop: '10px'
+                              }}
+                            >
+                              <input
+                                type="text"
+                                value={pair.left}
+                                onChange={(event) =>
+                                  updateMatchingPair(
+                                    index,
+                                    pairIndex,
+                                    'left',
+                                    event.target.value
+                                  )
+                                }
+                                placeholder="Left item"
+                                required
+                                disabled={savingQuiz}
+                              />
+
+                              <strong>→</strong>
+
+                              <input
+                                type="text"
+                                value={pair.right}
+                                onChange={(event) =>
+                                  updateMatchingPair(
+                                    index,
+                                    pairIndex,
+                                    'right',
+                                    event.target.value
+                                  )
+                                }
+                                placeholder="Correct match"
+                                required
+                                disabled={savingQuiz}
+                              />
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeMatchingPair(
+                                    index,
+                                    pairIndex
+                                  )
+                                }
+                                disabled={
+                                  savingQuiz ||
+                                  question.matching_pairs.length <= 2
+                                }
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#b42318',
+                                  fontWeight: '700',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            addMatchingPair(index)
+                          }
+                          disabled={savingQuiz}
+                          style={{
+                            marginTop: '12px',
+                            border: '1px solid #dfe2ea',
+                            background: 'white',
+                            padding: '8px 11px',
+                            borderRadius: '9px',
+                            cursor: 'pointer',
+                            fontWeight: '700'
+                          }}
+                        >
+                          + Add Matching Pair
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
