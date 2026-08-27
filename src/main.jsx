@@ -326,6 +326,10 @@ function DashboardShell({ profile }) {
         return <StudentDailyReading profile={profile} />
       }
 
+      if (activePage === 'Homework') {
+        return <StudentHomework profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -1487,6 +1491,737 @@ function StudentDailyReading({ profile }) {
             </div>
           </section>
         </>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentHomework({ profile }) {
+  const [classId, setClassId] = useState(null)
+  const [quizzes, setQuizzes] = useState([])
+  const [submissions, setSubmissions] = useState([])
+  const [activeQuiz, setActiveQuiz] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [answers, setAnswers] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [loadingQuiz, setLoadingQuiz] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadHomework()
+  }, [])
+
+  async function loadHomework() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: membership, error: membershipError } =
+      await supabase
+        .from('class_members')
+        .select('class_id')
+        .eq('student_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (membershipError) {
+      setMessage(membershipError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!membership) {
+      setMessage('You are not assigned to a Bible Study class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(membership.class_id)
+
+    const [quizResult, submissionResult] = await Promise.all([
+      supabase
+        .from('homework_quizzes')
+        .select('id, bible_study_date, title, due_date, created_at')
+        .eq('class_id', membership.class_id)
+        .order('bible_study_date', { ascending: false }),
+
+      supabase
+        .from('homework_submissions')
+        .select(
+          'id, quiz_id, score, total_questions, percentage, submitted_at'
+        )
+        .eq('student_id', profile.id)
+        .order('submitted_at', { ascending: false })
+    ])
+
+    if (quizResult.error || submissionResult.error) {
+      setMessage(
+        quizResult.error?.message ||
+        submissionResult.error?.message
+      )
+      setLoading(false)
+      return
+    }
+
+    setQuizzes(quizResult.data || [])
+    setSubmissions(submissionResult.data || [])
+    setLoading(false)
+  }
+
+  function submissionForQuiz(quizId) {
+    return submissions.find(
+      (submission) => submission.quiz_id === quizId
+    )
+  }
+
+  async function openQuiz(quiz) {
+    const existingSubmission = submissionForQuiz(quiz.id)
+
+    if (existingSubmission) {
+      setResult(existingSubmission)
+      setActiveQuiz(quiz)
+      setQuestions([])
+      setAnswers({})
+      setMessage('')
+      return
+    }
+
+    setLoadingQuiz(true)
+    setMessage('')
+    setResult(null)
+
+    const { data, error } = await supabase.functions.invoke(
+      'get-homework-quiz',
+      {
+        body: {
+          quiz_id: quiz.id
+        }
+      }
+    )
+
+    if (error) {
+      let detail = error.message
+
+      try {
+        if (error.context) {
+          const body = await error.context.json()
+          detail = body?.error || detail
+        }
+      } catch {
+        // Keep original message.
+      }
+
+      setMessage(detail || 'Could not load the homework quiz.')
+      setLoadingQuiz(false)
+      return
+    }
+
+    if (data?.error) {
+      setMessage(data.error)
+      setLoadingQuiz(false)
+      return
+    }
+
+    setActiveQuiz(data.quiz || quiz)
+    setQuestions(data.questions || [])
+    setAnswers({})
+    setLoadingQuiz(false)
+  }
+
+  function updateAnswer(questionId, value) {
+    setAnswers((current) => ({
+      ...current,
+      [questionId]: value
+    }))
+    setMessage('')
+  }
+
+  function updateMatchingAnswer(questionId, leftIndex, value) {
+    setAnswers((current) => ({
+      ...current,
+      [questionId]: {
+        ...(current[questionId] || {}),
+        [leftIndex]: value
+      }
+    }))
+    setMessage('')
+  }
+
+  function questionAnswered(question) {
+    const answer = answers[question.id]
+
+    if (question.question_type === 'matching') {
+      const pairCount = question.question_data?.left_items?.length || 0
+      if (!pairCount) return false
+
+      return Array.from({ length: pairCount }).every(
+        (_, index) => answer?.[index]
+      )
+    }
+
+    if (question.question_type === 'fill_blank') {
+      return typeof answer === 'string' && answer.trim().length > 0
+    }
+
+    return Boolean(answer)
+  }
+
+  async function submitQuiz() {
+    if (!activeQuiz || !questions.length) return
+
+    const unanswered = questions.filter(
+      (question) => !questionAnswered(question)
+    )
+
+    if (unanswered.length) {
+      setMessage(
+        `Please answer every question before submitting. ${unanswered.length} left.`
+      )
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Submit your homework? You will not be able to retake it after submitting.'
+    )
+
+    if (!confirmed) return
+
+    setSubmitting(true)
+    setMessage('')
+
+    const payloadAnswers = questions.map((question) => ({
+      question_id: question.id,
+      answer: answers[question.id]
+    }))
+
+    const { data, error } = await supabase.functions.invoke(
+      'submit-homework-quiz',
+      {
+        body: {
+          quiz_id: activeQuiz.id,
+          answers: payloadAnswers
+        }
+      }
+    )
+
+    if (error) {
+      let detail = error.message
+
+      try {
+        if (error.context) {
+          const body = await error.context.json()
+          detail = body?.error || detail
+        }
+      } catch {
+        // Keep original message.
+      }
+
+      setMessage(detail || 'Could not submit the homework quiz.')
+      setSubmitting(false)
+      return
+    }
+
+    if (data?.error) {
+      setMessage(data.error)
+      setSubmitting(false)
+      return
+    }
+
+    setResult(data.submission)
+    setQuestions([])
+    setAnswers({})
+    setMessage('Homework submitted successfully!')
+    await loadHomework()
+    setSubmitting(false)
+  }
+
+  function renderQuestion(question, index) {
+    const data = question.question_data || {}
+
+    if (question.question_type === 'multiple_choice') {
+      const choices = data.choices || []
+
+      return (
+        <div
+          key={question.id}
+          style={{
+            border: '1px solid #e7e7ef',
+            borderRadius: '16px',
+            padding: '18px',
+            marginBottom: '16px'
+          }}
+        >
+          <strong>
+            {index + 1}. {question.question_text}
+          </strong>
+
+          <div
+            style={{
+              display: 'grid',
+              gap: '10px',
+              marginTop: '14px'
+            }}
+          >
+            {choices.map((choice, choiceIndex) => {
+              const letter = ['A', 'B', 'C', 'D'][choiceIndex]
+
+              return (
+                <label
+                  key={letter}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    border:
+                      answers[question.id] === letter
+                        ? '2px solid #6b35c0'
+                        : '1px solid #dfe2ea',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    background:
+                      answers[question.id] === letter
+                        ? '#f7f2ff'
+                        : 'white'
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name={`question-${question.id}`}
+                    checked={answers[question.id] === letter}
+                    onChange={() =>
+                      updateAnswer(question.id, letter)
+                    }
+                  />
+                  <strong>{letter}.</strong>
+                  <span>{choice}</span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+
+    if (question.question_type === 'true_false') {
+      return (
+        <div
+          key={question.id}
+          style={{
+            border: '1px solid #e7e7ef',
+            borderRadius: '16px',
+            padding: '18px',
+            marginBottom: '16px'
+          }}
+        >
+          <strong>
+            {index + 1}. {question.question_text}
+          </strong>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: '10px',
+              marginTop: '14px',
+              maxWidth: '440px'
+            }}
+          >
+            {[
+              ['true', 'True'],
+              ['false', 'False']
+            ].map(([value, label]) => (
+              <label
+                key={value}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '14px 16px',
+                  border:
+                    answers[question.id] === value
+                      ? '2px solid #6b35c0'
+                      : '1px solid #dfe2ea',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  background:
+                    answers[question.id] === value
+                      ? '#f7f2ff'
+                      : 'white',
+                  fontWeight: '700'
+                }}
+              >
+                <input
+                  type="radio"
+                  name={`question-${question.id}`}
+                  checked={answers[question.id] === value}
+                  onChange={() =>
+                    updateAnswer(question.id, value)
+                  }
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    if (question.question_type === 'fill_blank') {
+      return (
+        <div
+          key={question.id}
+          style={{
+            border: '1px solid #e7e7ef',
+            borderRadius: '16px',
+            padding: '18px',
+            marginBottom: '16px'
+          }}
+        >
+          <strong>
+            {index + 1}. {question.question_text}
+          </strong>
+
+          <div style={{ marginTop: '14px', maxWidth: '520px' }}>
+            <label>Your Answer</label>
+            <input
+              type="text"
+              value={answers[question.id] || ''}
+              onChange={(event) =>
+                updateAnswer(question.id, event.target.value)
+              }
+              placeholder="Type your answer..."
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    if (question.question_type === 'matching') {
+      const leftItems = data.left_items || []
+      const rightItems = data.right_items || []
+
+      return (
+        <div
+          key={question.id}
+          style={{
+            border: '1px solid #e7e7ef',
+            borderRadius: '16px',
+            padding: '18px',
+            marginBottom: '16px'
+          }}
+        >
+          <strong>
+            {index + 1}. {question.question_text}
+          </strong>
+
+          <p
+            style={{
+              color: '#6b7280',
+              fontSize: '14px'
+            }}
+          >
+            Match each item on the left with the correct answer.
+          </p>
+
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {leftItems.map((leftItem, leftIndex) => (
+              <div
+                key={`${question.id}-${leftIndex}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'minmax(160px, 1fr) minmax(180px, 1fr)',
+                  gap: '12px',
+                  alignItems: 'center'
+                }}
+              >
+                <div
+                  style={{
+                    padding: '11px 12px',
+                    borderRadius: '10px',
+                    background: '#fafafa',
+                    border: '1px solid #e7e7ef',
+                    fontWeight: '700'
+                  }}
+                >
+                  {leftItem}
+                </div>
+
+                <select
+                  value={
+                    answers[question.id]?.[leftIndex] || ''
+                  }
+                  onChange={(event) =>
+                    updateMatchingAnswer(
+                      question.id,
+                      leftIndex,
+                      event.target.value
+                    )
+                  }
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Choose a match</option>
+                  {rightItems.map((rightItem, optionIndex) => (
+                    <option
+                      key={`${rightItem}-${optionIndex}`}
+                      value={rightItem}
+                    >
+                      {rightItem}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  if (activeQuiz) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveQuiz(null)
+            setQuestions([])
+            setAnswers({})
+            setResult(null)
+            setMessage('')
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: 0,
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Homework
+        </button>
+
+        <DashboardHeader
+          title={activeQuiz.title}
+          subtitle={
+            activeQuiz.due_date
+              ? `Due ${activeQuiz.due_date}`
+              : `Bible Study Week: ${activeQuiz.bible_study_date}`
+          }
+        />
+
+        {message && (
+          <div
+            style={{
+              marginTop: '20px',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              background: message.includes('successfully')
+                ? '#ecfdf3'
+                : '#fef3f2',
+              color: message.includes('successfully')
+                ? '#087257'
+                : '#b42318',
+              fontWeight: '600'
+            }}
+          >
+            {message}
+          </div>
+        )}
+
+        {loadingQuiz ? (
+          <section className="dashboard-card">
+            <p>Loading homework...</p>
+          </section>
+        ) : result ? (
+          <section className="dashboard-card">
+            <h2>Homework Complete 🎉</h2>
+
+            <div className="stats-grid">
+              <StatCard
+                icon={<CheckCircle2 />}
+                label="Score"
+                value={`${result.score}/${result.total_questions}`}
+                helper="Questions correct"
+              />
+
+              <StatCard
+                icon={<Trophy />}
+                label="Grade"
+                value={`${Math.round(Number(result.percentage) || 0)}%`}
+                helper="Final score"
+              />
+            </div>
+
+            <p
+              style={{
+                marginTop: '18px',
+                color: '#6b7280'
+              }}
+            >
+              This homework has already been submitted.
+            </p>
+          </section>
+        ) : (
+          <section className="dashboard-card">
+            <h2>Questions</h2>
+
+            {questions.map((question, index) =>
+              renderQuestion(question, index)
+            )}
+
+            {!questions.length && (
+              <p>No questions were found for this quiz.</p>
+            )}
+
+            {!!questions.length && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  marginTop: '20px'
+                }}
+              >
+                <button
+                  className="primary-button small-button"
+                  type="button"
+                  onClick={submitQuiz}
+                  disabled={submitting}
+                  style={{ width: 'auto' }}
+                >
+                  {submitting
+                    ? 'Submitting...'
+                    : 'Submit Homework'}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Homework"
+        subtitle="Complete your weekly Bible Study quizzes."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading homework...</p>
+        </section>
+      ) : (
+        <section
+          className="dashboard-card"
+          style={{ marginTop: '24px' }}
+        >
+          <h2>My Homework</h2>
+
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bible Study Week</th>
+                  <th>Quiz</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {quizzes.map((quiz) => {
+                  const submission =
+                    submissionForQuiz(quiz.id)
+
+                  return (
+                    <tr key={quiz.id}>
+                      <td>{quiz.bible_study_date}</td>
+                      <td>
+                        <strong>{quiz.title}</strong>
+                      </td>
+                      <td>{quiz.due_date || '—'}</td>
+                      <td>
+                        {submission ? (
+                          <span
+                            style={{
+                              color: '#087257',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Completed •{' '}
+                            {Math.round(
+                              Number(submission.percentage) || 0
+                            )}
+                            %
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              color: '#8a5a00',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Not completed
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => openQuiz(quiz)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#6b35c0',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          {submission ? 'View Score' : 'Take Quiz'}
+                          <ChevronRight size={17} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {!quizzes.length && (
+                  <tr>
+                    <td colSpan="5">
+                      No homework has been assigned yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </>
   )
