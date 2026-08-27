@@ -283,6 +283,10 @@ function DashboardShell({ profile }) {
         return <ServantQuickEntry profile={profile} />
       }
 
+      if (activePage === 'Students') {
+        return <ServantStudents profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -1473,6 +1477,800 @@ function ServantAttendance({ profile }) {
               </button>
             </div>
           </>
+        )}
+      </section>
+    </>
+  )
+}
+
+
+
+function ServantStudents({ profile }) {
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [students, setStudents] = useState([])
+  const [stats, setStats] = useState({})
+  const [search, setSearch] = useState('')
+  const [selectedStudent, setSelectedStudent] = useState(null)
+  const [showAddStudent, setShowAddStudent] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [form, setForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    password: '',
+    grade: ''
+  })
+
+  useEffect(() => {
+    loadStudents()
+  }, [])
+
+  async function loadStudents() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const [classResult, membershipsResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name')
+        .eq('id', assignment.class_id)
+        .single(),
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignment.class_id)
+    ])
+
+    if (classResult.data) {
+      setClassName(classResult.data.name)
+    }
+
+    if (membershipsResult.error) {
+      setMessage(membershipsResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const studentIds =
+      membershipsResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setStats({})
+      setLoading(false)
+      return
+    }
+
+    const { data: roster, error: rosterError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, grade, active')
+      .in('id', studentIds)
+      .eq('active', true)
+      .order('first_name')
+
+    if (rosterError) {
+      setMessage(rosterError.message)
+      setLoading(false)
+      return
+    }
+
+    const activeStudents = roster || []
+    setStudents(activeStudents)
+
+    const ids = activeStudents.map((student) => student.id)
+
+    const [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('student_id, present')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('daily_reading')
+        .select('student_id, completed')
+        .in('student_id', ids),
+      supabase
+        .from('homework')
+        .select('student_id, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('memory_verses')
+        .select('student_id, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('physical_bible')
+        .select('student_id, brought_bible')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('participation')
+        .select('student_id, points')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('bonus_points')
+        .select('student_id, points')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const allResults = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ]
+
+    const firstError =
+      allResults.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    const pointRules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      pointRules[rule.category] = Number(rule.points) || 0
+    })
+
+    const nextStats = {}
+
+    activeStudents.forEach((student) => {
+      const filterStudent = (result) =>
+        (result.data || []).filter(
+          (record) => record.student_id === student.id
+        )
+
+      const attendance = filterStudent(attendanceResult)
+      const reading = filterStudent(readingResult)
+      const homework = filterStudent(homeworkResult)
+      const verses = filterStudent(verseResult)
+      const bibles = filterStudent(bibleResult)
+      const participation = filterStudent(participationResult)
+      const bonus = filterStudent(bonusResult)
+
+      const countTrue = (items, field) =>
+        items.filter((item) => item[field] === true).length
+
+      const percentage = (items, field) =>
+        items.length
+          ? Math.round(
+              (countTrue(items, field) / items.length) * 100
+            )
+          : 0
+
+      const attendanceDone =
+        countTrue(attendance, 'present')
+      const readingDone =
+        countTrue(reading, 'completed')
+      const homeworkDone =
+        countTrue(homework, 'completed')
+      const verseDone =
+        countTrue(verses, 'completed')
+      const bibleDone =
+        countTrue(bibles, 'brought_bible')
+
+      const participationPoints = participation.reduce(
+        (sum, record) =>
+          sum + (Number(record.points) || 0),
+        0
+      )
+
+      const bonusPoints = bonus.reduce(
+        (sum, record) =>
+          sum + (Number(record.points) || 0),
+        0
+      )
+
+      nextStats[student.id] = {
+        attendance: percentage(attendance, 'present'),
+        reading: percentage(reading, 'completed'),
+        homework: percentage(homework, 'completed'),
+        verse: percentage(verses, 'completed'),
+        physicalBible: percentage(
+          bibles,
+          'brought_bible'
+        ),
+        points:
+          attendanceDone *
+            (pointRules.attendance || 0) +
+          readingDone *
+            (pointRules.daily_reading || 0) +
+          homeworkDone *
+            (pointRules.homework || 0) +
+          verseDone *
+            (pointRules.memory_verse || 0) +
+          bibleDone *
+            (pointRules.physical_bible || 0) +
+          participationPoints +
+          bonusPoints
+      }
+    })
+
+    setStats(nextStats)
+    setLoading(false)
+  }
+
+  function updateForm(field, value) {
+    setForm((current) => ({
+      ...current,
+      [field]: value
+    }))
+    setMessage('')
+  }
+
+  async function createStudent(event) {
+    event.preventDefault()
+    setSaving(true)
+    setMessage('')
+
+    if (
+      !form.first_name.trim() ||
+      !form.last_name.trim() ||
+      !form.email.trim() ||
+      !form.password ||
+      !form.grade.trim()
+    ) {
+      setMessage('Please complete every field.')
+      setSaving(false)
+      return
+    }
+
+    if (form.password.length < 6) {
+      setMessage(
+        'The temporary password must be at least 6 characters.'
+      )
+      setSaving(false)
+      return
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      'create-user',
+      {
+        body: {
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          role: 'student',
+          grade: form.grade.trim(),
+          class_id: classId
+        }
+      }
+    )
+
+    if (error) {
+      console.error('Servant create student error:', error)
+
+      let detail = error.message
+
+      try {
+        if (error.context) {
+          const body = await error.context.json()
+          detail = body?.error || detail
+        }
+      } catch {
+        // Keep the original error message.
+      }
+
+      setMessage(detail || 'Could not create the student.')
+      setSaving(false)
+      return
+    }
+
+    if (data?.error) {
+      setMessage(data.error)
+      setSaving(false)
+      return
+    }
+
+    setMessage('Student created successfully.')
+    setForm({
+      first_name: '',
+      last_name: '',
+      email: '',
+      password: '',
+      grade: ''
+    })
+
+    await loadStudents()
+    setShowAddStudent(false)
+    setSaving(false)
+  }
+
+  const visibleStudents = students.filter((student) => {
+    const text =
+      `${student.first_name || ''} ${student.last_name || ''} ${student.grade || ''}`
+        .toLowerCase()
+
+    return text.includes(search.toLowerCase())
+  })
+
+  if (showAddStudent) {
+    return (
+      <>
+        <button
+          onClick={() => {
+            if (!saving) {
+              setShowAddStudent(false)
+              setMessage('')
+            }
+          }}
+          disabled={saving}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: 0,
+            marginBottom: '18px',
+            cursor: saving ? 'default' : 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Students
+        </button>
+
+        <DashboardHeader
+          title="Add Student"
+          subtitle={`Create a student for ${className}`}
+        />
+
+        <section
+          className="dashboard-card"
+          style={{
+            marginTop: '24px',
+            maxWidth: '760px'
+          }}
+        >
+          <h2>Student Account</h2>
+
+          <p
+            style={{
+              color: '#6b7280',
+              marginTop: '-8px',
+              marginBottom: '22px'
+            }}
+          >
+            This student will automatically be assigned to
+            {` ${className}`}.
+          </p>
+
+          <form onSubmit={createStudent}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '16px'
+              }}
+            >
+              <div>
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={form.first_name}
+                  onChange={(event) =>
+                    updateForm(
+                      'first_name',
+                      event.target.value
+                    )
+                  }
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={form.last_name}
+                  onChange={(event) =>
+                    updateForm(
+                      'last_name',
+                      event.target.value
+                    )
+                  }
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) =>
+                    updateForm('email', event.target.value)
+                  }
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Temporary Password</label>
+                <input
+                  type="text"
+                  value={form.password}
+                  onChange={(event) =>
+                    updateForm(
+                      'password',
+                      event.target.value
+                    )
+                  }
+                  minLength="6"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Grade</label>
+                <input
+                  type="text"
+                  value={form.grade}
+                  onChange={(event) =>
+                    updateForm('grade', event.target.value)
+                  }
+                  placeholder="Example: 3rd"
+                  required
+                  disabled={saving}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label>Bible Study Class</label>
+                <input
+                  type="text"
+                  value={className}
+                  disabled
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
+            {message && (
+              <div
+                style={{
+                  marginTop: '18px',
+                  padding: '12px 14px',
+                  borderRadius: '12px',
+                  background: message.includes(
+                    'successfully'
+                  )
+                    ? '#ecfdf3'
+                    : '#fef3f2',
+                  color: message.includes('successfully')
+                    ? '#087257'
+                    : '#b42318',
+                  fontWeight: '600'
+                }}
+              >
+                {message}
+              </div>
+            )}
+
+            <button
+              className="primary-button small-button"
+              type="submit"
+              disabled={saving}
+              style={{
+                width: 'auto',
+                marginTop: '22px'
+              }}
+            >
+              {saving ? 'Creating...' : 'Create Student'}
+            </button>
+          </form>
+        </section>
+      </>
+    )
+  }
+
+  if (selectedStudent) {
+    const studentStats = stats[selectedStudent.id] || {}
+
+    return (
+      <>
+        <button
+          onClick={() => setSelectedStudent(null)}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: 0,
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to Students
+        </button>
+
+        <DashboardHeader
+          title={`${selectedStudent.first_name} ${selectedStudent.last_name}`}
+          subtitle={`${className} • Student profile`}
+        />
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<BookOpen />}
+            label="Grade"
+            value={selectedStudent.grade || '—'}
+            helper="Student grade"
+          />
+          <StatCard
+            icon={<CheckCircle2 />}
+            label="Attendance"
+            value={`${studentStats.attendance || 0}%`}
+            helper="Bible Study"
+          />
+          <StatCard
+            icon={<BookOpen />}
+            label="Daily Reading"
+            value={`${studentStats.reading || 0}%`}
+            helper="Student submitted"
+          />
+          <StatCard
+            icon={<Trophy />}
+            label="Points"
+            value={studentStats.points || 0}
+            helper="Total earned"
+          />
+        </div>
+
+        <section className="dashboard-card">
+          <h2>Progress Snapshot</h2>
+
+          <div className="progress-grid">
+            <ProgressCircle
+              label="Attendance"
+              value={studentStats.attendance || 0}
+              emoji="⛪"
+            />
+            <ProgressCircle
+              label="Daily Reading"
+              value={studentStats.reading || 0}
+              emoji="📖"
+            />
+            <ProgressCircle
+              label="Homework"
+              value={studentStats.homework || 0}
+              emoji="✏️"
+            />
+            <ProgressCircle
+              label="Memory Verse"
+              value={studentStats.verse || 0}
+              emoji="🧠"
+            />
+            <ProgressCircle
+              label="Physical Bible"
+              value={
+                studentStats.physicalBible || 0
+              }
+              emoji="📕"
+            />
+          </div>
+        </section>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Students"
+        subtitle={`${className} • Manage your class roster`}
+      />
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '12px',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          marginTop: '24px',
+          marginBottom: '18px'
+        }}
+      >
+        <input
+          type="search"
+          placeholder="Search students..."
+          value={search}
+          onChange={(event) =>
+            setSearch(event.target.value)
+          }
+          style={{
+            minWidth: '260px',
+            flex: 1,
+            padding: '12px 14px',
+            borderRadius: '12px',
+            border: '1px solid #dfe2ea',
+            background: 'white'
+          }}
+        />
+
+        <button
+          className="primary-button small-button"
+          type="button"
+          onClick={() => {
+            setMessage('')
+            setShowAddStudent(true)
+          }}
+          disabled={!classId}
+          style={{ width: 'auto' }}
+        >
+          Add Student
+        </button>
+      </div>
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      <section className="dashboard-card">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '12px',
+            alignItems: 'center',
+            marginBottom: '16px'
+          }}
+        >
+          <h2 style={{ margin: 0 }}>Class Roster</h2>
+
+          <span
+            style={{
+              color: '#6b7280',
+              fontSize: '13px'
+            }}
+          >
+            {visibleStudents.length}{' '}
+            {visibleStudents.length === 1
+              ? 'student'
+              : 'students'}
+          </span>
+        </div>
+
+        {loading ? (
+          <p>Loading students...</p>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Grade</th>
+                  <th>Attendance</th>
+                  <th>Reading</th>
+                  <th>Points</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {visibleStudents.map((student) => {
+                  const studentStats =
+                    stats[student.id] || {}
+
+                  return (
+                    <tr key={student.id}>
+                      <td>
+                        <strong>
+                          {student.first_name}{' '}
+                          {student.last_name}
+                        </strong>
+                      </td>
+                      <td>{student.grade || '—'}</td>
+                      <td>
+                        {studentStats.attendance || 0}%
+                      </td>
+                      <td>
+                        {studentStats.reading || 0}%
+                      </td>
+                      <td>
+                        <strong>
+                          {studentStats.points || 0}
+                        </strong>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() =>
+                            setSelectedStudent(student)
+                          }
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#6b35c0',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          View
+                          <ChevronRight size={17} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {!visibleStudents.length && (
+                  <tr>
+                    <td colSpan="6">
+                      No students match this search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </>
