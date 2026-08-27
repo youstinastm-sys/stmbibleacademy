@@ -2671,9 +2671,7 @@ function StudentAchievements({ profile }) {
     homeworkCount: 0,
     perfectHomeworkCount: 0,
     verseCount: 0,
-    bibleCount: 0,
-    participationPoints: 0,
-    bonusPoints: 0
+    bibleCount: 0
   })
 
   useEffect(() => {
@@ -2691,8 +2689,6 @@ function StudentAchievements({ profile }) {
     const cursor = new Date()
     cursor.setHours(12, 0, 0, 0)
 
-    // If today is not completed yet, allow the streak to continue
-    // from yesterday instead of immediately resetting it.
     const today = cursor.toISOString().slice(0, 10)
 
     if (!completedDates.has(today)) {
@@ -2845,208 +2841,423 @@ function StudentAchievements({ profile }) {
       homeworkCount,
       perfectHomeworkCount,
       verseCount,
-      bibleCount,
-      participationPoints,
-      bonusPoints
+      bibleCount
     })
 
     setLoading(false)
   }
 
-  const achievements = [
+  const tracks = [
     {
-      id: 'first-reading',
-      emoji: '📖',
-      title: 'First Gem',
-      description: 'Complete your first Daily Reading.',
-      current: summary.readingCount,
-      goal: 1
-    },
-    {
-      id: 'reading-3',
-      emoji: '🔥',
-      title: 'Getting Consistent',
-      description: 'Reach a 3-day Bible reading streak.',
-      current: summary.readingStreak,
-      goal: 3
-    },
-    {
-      id: 'reading-7',
+      id: 'reader',
       emoji: '💎',
-      title: 'Week in the Word',
-      description: 'Reach a 7-day Bible reading streak.',
-      current: summary.readingStreak,
-      goal: 7
+      title: 'Bible Reader',
+      value: summary.readingCount,
+      unit: 'readings',
+      levels: [
+        { goal: 1, name: 'First Gem' },
+        { goal: 10, name: 'Gem Finder' },
+        { goal: 25, name: 'Gem Collector' },
+        { goal: 50, name: 'Gem Hunter' },
+        { goal: 100, name: 'Treasure Keeper' }
+      ]
     },
     {
-      id: 'first-homework',
+      id: 'streak',
+      emoji: '🔥',
+      title: 'Reading Streak',
+      value: summary.readingStreak,
+      unit: 'days',
+      levels: [
+        { goal: 3, name: 'Spark' },
+        { goal: 7, name: 'Flame' },
+        { goal: 14, name: 'Fire' },
+        { goal: 30, name: 'Torch' },
+        { goal: 50, name: 'Beacon' }
+      ]
+    },
+    {
+      id: 'homework',
       emoji: '✏️',
       title: 'Homework Hero',
-      description: 'Complete your first homework assignment.',
-      current: summary.homeworkCount,
-      goal: 1
+      value: summary.homeworkCount,
+      unit: 'homework assignments',
+      levels: [
+        { goal: 1, name: 'Starter' },
+        { goal: 5, name: 'Learner' },
+        { goal: 10, name: 'Scholar' },
+        { goal: 20, name: 'Homework Hero' },
+        { goal: 30, name: 'Homework Champion' }
+      ]
     },
     {
-      id: 'perfect-homework',
+      id: 'quiz',
       emoji: '🏆',
-      title: 'Perfect Score',
-      description: 'Score 100% on a homework quiz.',
-      current: summary.perfectHomeworkCount,
-      goal: 1
+      title: 'Quiz Master',
+      value: summary.perfectHomeworkCount,
+      unit: 'perfect scores',
+      levels: [
+        { goal: 1, name: 'Sharp Mind' },
+        { goal: 3, name: 'Quiz Whiz' },
+        { goal: 5, name: 'Bible Brain' },
+        { goal: 10, name: 'Quiz Master' },
+        { goal: 20, name: 'Perfect Scholar' }
+      ]
     },
     {
-      id: 'verses-3',
+      id: 'verse',
       emoji: '🧠',
       title: 'Word in My Heart',
-      description: 'Recite 3 memory verses.',
-      current: summary.verseCount,
-      goal: 3
+      value: summary.verseCount,
+      unit: 'verses',
+      levels: [
+        { goal: 1, name: 'First Verse' },
+        { goal: 5, name: 'Verse Keeper' },
+        { goal: 10, name: 'Word Bearer' },
+        { goal: 20, name: 'Scripture Keeper' },
+        { goal: 30, name: 'Word in My Heart' }
+      ]
     },
     {
-      id: 'attendance-4',
+      id: 'attendance',
       emoji: '⛪',
       title: 'Faithful Friday',
-      description: 'Attend Bible Study 4 times.',
-      current: summary.attendanceCount,
-      goal: 4
+      value: summary.attendanceCount,
+      unit: 'Fridays',
+      levels: [
+        { goal: 1, name: 'I Showed Up!' },
+        { goal: 5, name: 'Faithful Friend' },
+        { goal: 10, name: 'Friday Regular' },
+        { goal: 20, name: 'Faithful Friday' },
+        { goal: 30, name: 'Steadfast Servant' }
+      ]
     },
     {
-      id: 'bible-4',
+      id: 'bible',
       emoji: '📕',
       title: 'Bible Ready',
-      description: 'Bring your physical Bible 4 times.',
-      current: summary.bibleCount,
-      goal: 4
+      value: summary.bibleCount,
+      unit: 'times',
+      levels: [
+        { goal: 1, name: 'Bible in Hand' },
+        { goal: 5, name: 'Bible Ready' },
+        { goal: 10, name: 'Always Prepared' },
+        { goal: 20, name: 'Word Ready' },
+        { goal: 30, name: 'Equipped' }
+      ]
     },
     {
-      id: 'points-50',
+      id: 'points',
       emoji: '⭐',
-      title: 'Rising Star',
-      description: 'Earn 50 total Bible Study points.',
-      current: summary.points,
-      goal: 50
-    },
-    {
-      id: 'points-100',
-      emoji: '👑',
-      title: 'Century Club',
-      description: 'Earn 100 total Bible Study points.',
-      current: summary.points,
-      goal: 100
+      title: 'Points Champion',
+      value: summary.points,
+      unit: 'points',
+      levels: [
+        { goal: 25, name: 'Rising Star' },
+        { goal: 50, name: 'Bright Star' },
+        { goal: 100, name: 'Century Club' },
+        { goal: 250, name: 'Superstar' },
+        { goal: 500, name: 'Points Champion' }
+      ]
     }
   ]
 
-  const unlocked = achievements.filter(
-    (achievement) => achievement.current >= achievement.goal
+  function trackStatus(track) {
+    let earnedIndex = -1
+
+    track.levels.forEach((level, index) => {
+      if (track.value >= level.goal) {
+        earnedIndex = index
+      }
+    })
+
+    const currentLevel =
+      earnedIndex >= 0 ? track.levels[earnedIndex] : null
+
+    const nextLevel =
+      earnedIndex < track.levels.length - 1
+        ? track.levels[earnedIndex + 1]
+        : null
+
+    const previousGoal =
+      earnedIndex >= 0 ? track.levels[earnedIndex].goal : 0
+
+    const nextGoal = nextLevel?.goal || previousGoal
+
+    const progress = nextLevel
+      ? Math.min(
+          100,
+          Math.round(
+            ((track.value - previousGoal) /
+              Math.max(1, nextGoal - previousGoal)) *
+              100
+          )
+        )
+      : 100
+
+    return {
+      earnedIndex,
+      currentLevel,
+      nextLevel,
+      progress
+    }
+  }
+
+  const totalLevels = tracks.reduce(
+    (sum, track) => sum + track.levels.length,
+    0
   )
 
-  const locked = achievements.filter(
-    (achievement) => achievement.current < achievement.goal
-  )
-
-  function AchievementCard({ achievement }) {
-    const earned = achievement.current >= achievement.goal
-    const progress = Math.min(
-      100,
-      Math.round(
-        (achievement.current / achievement.goal) * 100
-      )
+  const unlockedLevels = tracks.reduce((sum, track) => {
+    return (
+      sum +
+      track.levels.filter(
+        (level) => track.value >= level.goal
+      ).length
     )
+  }, 0)
+
+  function TrackCard({ track }) {
+    const status = trackStatus(track)
 
     return (
       <div
         style={{
-          border: earned
-            ? '1px solid #cfc0f4'
-            : '1px solid #ececf2',
-          borderRadius: '16px',
-          padding: '18px',
-          background: earned ? '#faf8ff' : '#fff',
-          opacity: earned ? 1 : 0.86
+          border: '1px solid #e7e3ef',
+          borderRadius: '18px',
+          padding: '20px',
+          background: 'white'
         }}
       >
         <div
           style={{
             display: 'flex',
+            alignItems: 'flex-start',
             justifyContent: 'space-between',
-            gap: '12px',
-            alignItems: 'flex-start'
+            gap: '14px'
           }}
         >
           <div
             style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '15px',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '28px',
-              background: earned ? '#efe8ff' : '#f4f4f7'
+              gap: '13px',
+              alignItems: 'center'
             }}
           >
-            {achievement.emoji}
+            <div
+              style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '16px',
+                background: '#f1ebff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '29px'
+              }}
+            >
+              {track.emoji}
+            </div>
+
+            <div>
+              <h3 style={{ margin: 0 }}>
+                {track.title}
+              </h3>
+
+              <div
+                style={{
+                  color: '#6b7280',
+                  marginTop: '3px',
+                  fontSize: '14px'
+                }}
+              >
+                {track.value} {track.unit}
+              </div>
+            </div>
           </div>
 
           <span
             style={{
-              fontSize: '12px',
-              fontWeight: '800',
-              padding: '6px 9px',
+              padding: '7px 10px',
               borderRadius: '999px',
-              color: earned ? '#087257' : '#6b7280',
-              background: earned ? '#ecfdf3' : '#f4f4f7'
+              background: status.currentLevel
+                ? '#ecfdf3'
+                : '#f4f4f7',
+              color: status.currentLevel
+                ? '#087257'
+                : '#6b7280',
+              fontWeight: '800',
+              fontSize: '12px'
             }}
           >
-            {earned ? 'UNLOCKED ✓' : 'LOCKED'}
+            {status.currentLevel
+              ? `LEVEL ${status.earnedIndex + 1}`
+              : 'START HERE'}
           </span>
         </div>
 
-        <h3 style={{ marginBottom: '7px' }}>
-          {achievement.title}
-        </h3>
-
-        <p
-          style={{
-            color: '#6b7280',
-            minHeight: '42px'
-          }}
-        >
-          {achievement.description}
-        </p>
-
         <div
           style={{
-            height: '8px',
-            borderRadius: '999px',
-            background: '#ececf2',
-            overflow: 'hidden'
+            marginTop: '20px',
+            padding: '16px',
+            borderRadius: '14px',
+            background: '#faf8ff'
           }}
         >
+          {status.currentLevel ? (
+            <>
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: '#6b35c0',
+                  fontWeight: '800',
+                  textTransform: 'uppercase'
+                }}
+              >
+                Current Badge
+              </div>
+              <div
+                style={{
+                  fontSize: '20px',
+                  fontWeight: '800',
+                  marginTop: '3px'
+                }}
+              >
+                {status.currentLevel.name}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: '#6b35c0',
+                  fontWeight: '800',
+                  textTransform: 'uppercase'
+                }}
+              >
+                First Badge
+              </div>
+              <div
+                style={{
+                  fontSize: '20px',
+                  fontWeight: '800',
+                  marginTop: '3px'
+                }}
+              >
+                {track.levels[0].name}
+              </div>
+            </>
+          )}
+        </div>
+
+        {status.nextLevel ? (
+          <>
+            <div
+              style={{
+                marginTop: '17px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '10px',
+                fontSize: '13px'
+              }}
+            >
+              <strong>
+                Next: {status.nextLevel.name}
+              </strong>
+              <span style={{ color: '#6b7280' }}>
+                {track.value}/{status.nextLevel.goal}
+              </span>
+            </div>
+
+            <div
+              style={{
+                height: '9px',
+                borderRadius: '999px',
+                background: '#ececf2',
+                overflow: 'hidden',
+                marginTop: '8px'
+              }}
+            >
+              <div
+                style={{
+                  width: `${status.progress}%`,
+                  height: '100%',
+                  background: 'var(--accent)',
+                  borderRadius: '999px'
+                }}
+              />
+            </div>
+
+            <p
+              style={{
+                marginBottom: 0,
+                marginTop: '9px',
+                color: '#6b7280',
+                fontSize: '13px'
+              }}
+            >
+              {Math.max(
+                0,
+                status.nextLevel.goal - track.value
+              )}{' '}
+              more {track.unit} until{' '}
+              <strong>{status.nextLevel.name}</strong>.
+            </p>
+          </>
+        ) : (
           <div
             style={{
-              width: `${progress}%`,
-              height: '100%',
-              background: 'var(--accent)',
-              borderRadius: '999px'
+              marginTop: '17px',
+              padding: '12px',
+              borderRadius: '12px',
+              background: '#ecfdf3',
+              color: '#087257',
+              fontWeight: '800',
+              textAlign: 'center'
             }}
-          />
-        </div>
+          >
+            👑 Highest level unlocked!
+          </div>
+        )}
 
         <div
           style={{
-            marginTop: '8px',
-            fontSize: '13px',
-            color: '#6b7280',
             display: 'flex',
-            justifyContent: 'space-between'
+            gap: '7px',
+            flexWrap: 'wrap',
+            marginTop: '18px'
           }}
         >
-          <span>{progress}%</span>
-          <span>
-            {Math.min(achievement.current, achievement.goal)}/
-            {achievement.goal}
-          </span>
+          {track.levels.map((level, index) => {
+            const earned = track.value >= level.goal
+
+            return (
+              <div
+                key={level.name}
+                title={`${level.name}: ${level.goal} ${track.unit}`}
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: '800',
+                  background: earned
+                    ? '#6b35c0'
+                    : '#f0f0f4',
+                  color: earned ? 'white' : '#8a8f9c',
+                  border: earned
+                    ? '2px solid #6b35c0'
+                    : '2px solid #e2e2e8'
+                }}
+              >
+                {earned ? '✓' : index + 1}
+              </div>
+            )
+          })}
         </div>
       </div>
     )
@@ -3056,7 +3267,7 @@ function StudentAchievements({ profile }) {
     <>
       <DashboardHeader
         title="Achievements"
-        subtitle="Celebrate the habits you're building as you grow in God's Word."
+        subtitle="Keep growing, level up your badges, and celebrate your progress."
       />
 
       {message && (
@@ -3074,9 +3285,9 @@ function StudentAchievements({ profile }) {
           <div className="stats-grid">
             <StatCard
               icon={<Trophy />}
-              label="Unlocked"
-              value={`${unlocked.length}/${achievements.length}`}
-              helper="Achievements earned"
+              label="Levels Unlocked"
+              value={`${unlockedLevels}/${totalLevels}`}
+              helper="Across all achievement tracks"
             />
 
             <StatCard
@@ -3102,80 +3313,36 @@ function StudentAchievements({ profile }) {
           </div>
 
           <section className="dashboard-card">
-            <h2>Unlocked Achievements</h2>
-
-            {unlocked.length ? (
-              <div
+            <div>
+              <h2 style={{ marginBottom: '5px' }}>
+                Your Achievement Tracks
+              </h2>
+              <p
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fit, minmax(240px, 1fr))',
-                  gap: '16px',
-                  marginTop: '18px'
+                  color: '#6b7280',
+                  marginTop: 0
                 }}
               >
-                {unlocked.map((achievement) => (
-                  <AchievementCard
-                    key={achievement.id}
-                    achievement={achievement}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div
-                style={{
-                  marginTop: '16px',
-                  padding: '22px',
-                  border: '1px solid #ececf2',
-                  borderRadius: '14px'
-                }}
-              >
-                <strong>Your first achievement is waiting!</strong>
-                <p
-                  style={{
-                    marginBottom: 0,
-                    color: '#6b7280'
-                  }}
-                >
-                  Complete your first Daily Reading to unlock
-                  <strong> First Gem</strong>.
-                </p>
-              </div>
-            )}
-          </section>
-
-          <section className="dashboard-card">
-            <h2>Keep Going</h2>
+                Every track has five levels. Keep going to unlock
+                the next badge!
+              </p>
+            </div>
 
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns:
-                  'repeat(auto-fit, minmax(240px, 1fr))',
+                  'repeat(auto-fit, minmax(290px, 1fr))',
                 gap: '16px',
-                marginTop: '18px'
+                marginTop: '20px'
               }}
             >
-              {locked.map((achievement) => (
-                <AchievementCard
-                  key={achievement.id}
-                  achievement={achievement}
+              {tracks.map((track) => (
+                <TrackCard
+                  key={track.id}
+                  track={track}
                 />
               ))}
-
-              {!locked.length && (
-                <div
-                  style={{
-                    padding: '22px',
-                    borderRadius: '14px',
-                    background: '#ecfdf3',
-                    color: '#087257',
-                    fontWeight: '700'
-                  }}
-                >
-                  You unlocked every achievement! 🎉
-                </div>
-              )}
             </div>
           </section>
         </>
