@@ -12813,6 +12813,7 @@ function AdminStudents() {
   const [students, setStudents] = useState([])
   const [classes, setClasses] = useState([])
   const [memberships, setMemberships] = useState([])
+  const [studentStats, setStudentStats] = useState({})
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const [selectedStudent, setSelectedStudent] = useState(null)
@@ -12831,7 +12832,16 @@ function AdminStudents() {
     const [
       studentsResult,
       classesResult,
-      membershipsResult
+      membershipsResult,
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult,
+      submissionsResult
     ] = await Promise.all([
       supabase
         .from('profiles')
@@ -12847,33 +12857,156 @@ function AdminStudents() {
 
       supabase
         .from('class_members')
-        .select('student_id, class_id')
+        .select('student_id, class_id'),
+
+      supabase
+        .from('attendance')
+        .select('student_id, present'),
+
+      supabase
+        .from('daily_reading')
+        .select('student_id, completed'),
+
+      supabase
+        .from('homework')
+        .select('student_id, completed'),
+
+      supabase
+        .from('memory_verses')
+        .select('student_id, completed'),
+
+      supabase
+        .from('physical_bible')
+        .select('student_id, brought_bible'),
+
+      supabase
+        .from('participation')
+        .select('student_id, points'),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, points'),
+
+      supabase
+        .from('point_rules')
+        .select('category, points'),
+
+      supabase
+        .from('homework_submissions')
+        .select('student_id, percentage')
     ])
 
-    if (studentsResult.error) {
-      console.error(
-        'Students error:',
-        studentsResult.error
-      )
+    const results = [
+      studentsResult,
+      classesResult,
+      membershipsResult,
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult,
+      submissionsResult
+    ]
+
+    const firstError =
+      results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
     }
 
-    if (classesResult.error) {
-      console.error(
-        'Classes error:',
-        classesResult.error
-      )
-    }
-
-    if (membershipsResult.error) {
-      console.error(
-        'Memberships error:',
-        membershipsResult.error
-      )
-    }
-
-    setStudents(studentsResult.data || [])
+    const studentRows = studentsResult.data || []
+    setStudents(studentRows)
     setClasses(classesResult.data || [])
     setMemberships(membershipsResult.data || [])
+
+    const rules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      rules[rule.category] = Number(rule.points) || 0
+    })
+
+    const stats = {}
+
+    studentRows.forEach((student) => {
+      const filter = (result) =>
+        (result.data || []).filter(
+          (record) => record.student_id === student.id
+        )
+
+      const attendance = filter(attendanceResult)
+      const reading = filter(readingResult)
+      const homework = filter(homeworkResult)
+      const verses = filter(verseResult)
+      const bibles = filter(bibleResult)
+      const participation = filter(participationResult)
+      const bonus = filter(bonusResult)
+      const submissions = filter(submissionsResult)
+
+      const countTrue = (items, field) =>
+        items.filter((item) => item[field] === true).length
+
+      const percent = (items, field) =>
+        items.length
+          ? Math.round(
+              (countTrue(items, field) / items.length) * 100
+            )
+          : 0
+
+      const attendanceDone = countTrue(attendance, 'present')
+      const readingDone = countTrue(reading, 'completed')
+      const homeworkDone = countTrue(homework, 'completed')
+      const verseDone = countTrue(verses, 'completed')
+      const bibleDone = countTrue(bibles, 'brought_bible')
+
+      const participationPoints = participation.reduce(
+        (sum, item) => sum + (Number(item.points) || 0),
+        0
+      )
+
+      const bonusPoints = bonus.reduce(
+        (sum, item) => sum + (Number(item.points) || 0),
+        0
+      )
+
+      const points =
+        attendanceDone * (rules.attendance || 0) +
+        readingDone * (rules.daily_reading || 0) +
+        homeworkDone * (rules.homework || 0) +
+        verseDone * (rules.memory_verse || 0) +
+        bibleDone * (rules.physical_bible || 0) +
+        participationPoints +
+        bonusPoints
+
+      const quizAverage = submissions.length
+        ? Math.round(
+            submissions.reduce(
+              (sum, submission) =>
+                sum + (Number(submission.percentage) || 0),
+              0
+            ) / submissions.length
+          )
+        : null
+
+      stats[student.id] = {
+        attendance: percent(attendance, 'present'),
+        reading: percent(reading, 'completed'),
+        homework: percent(homework, 'completed'),
+        verse: percent(verses, 'completed'),
+        bible: percent(bibles, 'brought_bible'),
+        points,
+        participationPoints,
+        bonusPoints,
+        quizAverage,
+        quizzesTaken: submissions.length
+      }
+    })
+
+    setStudentStats(stats)
     setLoading(false)
   }
 
@@ -12887,15 +13020,12 @@ function AdminStudents() {
     return (
       classes.find(
         (classItem) =>
-          classItem.id === membership.class_id
+          Number(classItem.id) === Number(membership.class_id)
       ) || null
     )
   }
 
-  async function moveStudent(
-    studentId,
-    newClassId
-  ) {
+  async function moveStudent(studentId, newClassId) {
     setSaving(true)
     setMessage('')
 
@@ -12905,15 +13035,7 @@ function AdminStudents() {
       .eq('student_id', studentId)
 
     if (deleteError) {
-      console.error(
-        'Remove class error:',
-        deleteError
-      )
-
-      setMessage(
-        'I could not update the class assignment.'
-      )
-
+      setMessage(deleteError.message)
       setSaving(false)
       return
     }
@@ -12927,64 +13049,62 @@ function AdminStudents() {
         })
 
       if (insertError) {
-        console.error(
-          'Assign class error:',
-          insertError
-        )
-
         setMessage(
-          'The old class was removed, but the new class could not be assigned.'
+          'The old class was removed, but the new class could not be assigned: ' +
+            insertError.message
         )
-
         setSaving(false)
         await loadStudentsPage()
         return
       }
     }
 
-    setMessage('Class assignment updated.')
+    setMessage('Class assignment updated successfully.')
     await loadStudentsPage()
-
-    if (selectedStudent?.id === studentId) {
-      setSelectedStudent((current) => ({
-        ...current
-      }))
-    }
-
     setSaving(false)
   }
 
-  const visibleStudents = students.filter(
-    (student) => {
-      const fullName =
-        `${student.first_name || ''} ${student.last_name || ''}`
-          .toLowerCase()
+  const visibleStudents = students.filter((student) => {
+    const fullName =
+      `${student.first_name || ''} ${student.last_name || ''}`.toLowerCase()
 
-      const matchesSearch =
-        fullName.includes(search.toLowerCase()) ||
-        (student.grade || '')
-          .toLowerCase()
-          .includes(search.toLowerCase())
+    const term = search.toLowerCase()
 
-      const studentClass =
-        getStudentClass(student.id)
+    const matchesSearch =
+      fullName.includes(term) ||
+      (student.grade || '').toLowerCase().includes(term)
 
-      const matchesClass =
-        classFilter === 'all' ||
-        String(studentClass?.id || '') ===
-          classFilter
+    const studentClass = getStudentClass(student.id)
 
-      return matchesSearch && matchesClass
-    }
+    const matchesClass =
+      classFilter === 'all' ||
+      String(studentClass?.id || '') === classFilter
+
+    return matchesSearch && matchesClass
+  })
+
+  const activeCount = students.filter(
+    (student) => student.active
+  ).length
+
+  const unassignedCount = students.filter(
+    (student) => !getStudentClass(student.id)
+  ).length
+
+  const totalPoints = students.reduce(
+    (sum, student) =>
+      sum + (studentStats[student.id]?.points || 0),
+    0
   )
 
   if (selectedStudent) {
-    const studentClass =
-      getStudentClass(selectedStudent.id)
+    const studentClass = getStudentClass(selectedStudent.id)
+    const stats = studentStats[selectedStudent.id] || {}
 
     return (
       <>
         <button
+          type="button"
           onClick={() => {
             setSelectedStudent(null)
             setMessage('')
@@ -12995,7 +13115,7 @@ function AdminStudents() {
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            padding: '0',
+            padding: 0,
             marginBottom: '18px',
             cursor: 'pointer',
             color: '#6b35c0',
@@ -13008,44 +13128,118 @@ function AdminStudents() {
 
         <DashboardHeader
           title={`${selectedStudent.first_name} ${selectedStudent.last_name}`}
-          subtitle="Student profile"
+          subtitle="Student account and progress"
         />
 
         <div className="stats-grid">
           <StatCard
-            icon={<GraduationCap />}
-            label="Class"
-            value={
-              studentClass?.name || 'Unassigned'
-            }
-            helper="Bible Study group"
-          />
-
-          <StatCard
-            icon={<BookOpen />}
-            label="Grade"
-            value={selectedStudent.grade || '—'}
-            helper="Student grade"
+            icon={<Trophy />}
+            label="Total Points"
+            value={stats.points || 0}
+            helper="All points earned"
           />
 
           <StatCard
             icon={<CheckCircle2 />}
-            label="Status"
-            value={
-              selectedStudent.active
-                ? 'Active'
-                : 'Inactive'
-            }
-            helper="Account status"
+            label="Attendance"
+            value={`${stats.attendance || 0}%`}
+            helper="Bible Study attendance"
           />
 
           <StatCard
-            icon={<Trophy />}
-            label="Points"
-            value="—"
-            helper="Detailed points coming next"
+            icon={<BookOpen />}
+            label="Daily Reading"
+            value={`${stats.reading || 0}%`}
+            helper="Reading completion"
+          />
+
+          <StatCard
+            icon={<ClipboardCheck />}
+            label="Quiz Average"
+            value={
+              stats.quizAverage === null ||
+              stats.quizAverage === undefined
+                ? '—'
+                : `${stats.quizAverage}%`
+            }
+            helper={`${stats.quizzesTaken || 0} quizzes taken`}
           />
         </div>
+
+        <section className="dashboard-card">
+          <h2>Student Information</h2>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '14px',
+              marginTop: '18px'
+            }}
+          >
+            <div
+              style={{
+                padding: '15px',
+                border: '1px solid #ececf2',
+                borderRadius: '13px'
+              }}
+            >
+              <div
+                style={{
+                  color: '#8a8f9c',
+                  fontSize: '12px',
+                  marginBottom: '5px'
+                }}
+              >
+                GRADE
+              </div>
+              <strong>{selectedStudent.grade || '—'}</strong>
+            </div>
+
+            <div
+              style={{
+                padding: '15px',
+                border: '1px solid #ececf2',
+                borderRadius: '13px'
+              }}
+            >
+              <div
+                style={{
+                  color: '#8a8f9c',
+                  fontSize: '12px',
+                  marginBottom: '5px'
+                }}
+              >
+                CLASS
+              </div>
+              <strong>
+                {studentClass?.name || 'Unassigned'}
+              </strong>
+            </div>
+
+            <div
+              style={{
+                padding: '15px',
+                border: '1px solid #ececf2',
+                borderRadius: '13px'
+              }}
+            >
+              <div
+                style={{
+                  color: '#8a8f9c',
+                  fontSize: '12px',
+                  marginBottom: '5px'
+                }}
+              >
+                STATUS
+              </div>
+              <strong>
+                {selectedStudent.active ? 'Active' : 'Inactive'}
+              </strong>
+            </div>
+          </div>
+        </section>
 
         <section className="dashboard-card">
           <h2>Class Assignment</h2>
@@ -13056,65 +13250,48 @@ function AdminStudents() {
               marginTop: '-8px'
             }}
           >
-            Move this student to a different Bible
-            Study group.
+            Move this student to a different Bible Study class.
           </p>
 
-          <div
+          <select
+            value={
+              studentClass
+                ? String(studentClass.id)
+                : 'none'
+            }
+            disabled={saving}
+            onChange={(event) =>
+              moveStudent(
+                selectedStudent.id,
+                event.target.value
+              )
+            }
             style={{
-              display: 'flex',
-              gap: '12px',
-              alignItems: 'center',
-              flexWrap: 'wrap'
+              minWidth: '260px',
+              maxWidth: '100%',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              border: '1px solid #dfe2ea',
+              background: 'white'
             }}
           >
-            <select
-              value={
-                studentClass
-                  ? String(studentClass.id)
-                  : 'none'
-              }
-              disabled={saving}
-              onChange={(event) =>
-                moveStudent(
-                  selectedStudent.id,
-                  event.target.value
-                )
-              }
-              style={{
-                minWidth: '240px',
-                padding: '12px 14px',
-                borderRadius: '12px',
-                border: '1px solid #dfe2ea',
-                background: 'white'
-              }}
-            >
-              <option value="none">
-                Unassigned
+            <option value="none">Unassigned</option>
+
+            {classes.map((classItem) => (
+              <option
+                key={classItem.id}
+                value={classItem.id}
+              >
+                {classItem.name}
               </option>
-
-              {classes.map((classItem) => (
-                <option
-                  key={classItem.id}
-                  value={classItem.id}
-                >
-                  {classItem.name}
-                </option>
-              ))}
-            </select>
-
-            {saving && (
-              <span style={{ color: '#6b7280' }}>
-                Saving...
-              </span>
-            )}
-          </div>
+            ))}
+          </select>
 
           {message && (
             <p
               style={{
                 marginTop: '14px',
-                color: message.includes('updated')
+                color: message.includes('successfully')
                   ? '#087257'
                   : '#b42318',
                 fontWeight: '600'
@@ -13131,53 +13308,79 @@ function AdminStudents() {
           <div className="progress-grid">
             <ProgressCircle
               label="Daily Reading"
-              value={0}
+              value={stats.reading || 0}
               emoji="📖"
             />
 
             <ProgressCircle
               label="Attendance"
-              value={0}
+              value={stats.attendance || 0}
               emoji="⛪"
             />
 
             <ProgressCircle
               label="Homework"
-              value={0}
+              value={stats.homework || 0}
               emoji="✏️"
             />
 
             <ProgressCircle
               label="Memory Verse"
-              value={0}
+              value={stats.verse || 0}
               emoji="🧠"
             />
 
             <ProgressCircle
               label="Physical Bible"
-              value={0}
+              value={stats.bible || 0}
               emoji="📕"
             />
-
-            <ProgressCircle
-              label="Participation"
-              value={0}
-              emoji="⭐"
-            />
           </div>
+        </section>
 
-          <p
-            style={{
-              marginTop: '20px',
-              marginBottom: 0,
-              color: '#6b7280',
-              fontSize: '13px'
-            }}
-          >
-            We will connect these percentages to
-            each student's real records when we
-            build the progress and points pages.
-          </p>
+        <section className="dashboard-card">
+          <h2>Points Details</h2>
+
+          <div className="table-wrapper">
+            <table>
+              <tbody>
+                <tr>
+                  <td>Participation Points</td>
+                  <td>
+                    <strong>
+                      {stats.participationPoints || 0}
+                    </strong>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>Bonus Points</td>
+                  <td>
+                    <strong>{stats.bonusPoints || 0}</strong>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>Quiz Average</td>
+                  <td>
+                    <strong>
+                      {stats.quizAverage === null ||
+                      stats.quizAverage === undefined
+                        ? '—'
+                        : `${stats.quizAverage}%`}
+                    </strong>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>Total Points</td>
+                  <td>
+                    <strong>{stats.points || 0}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </>
     )
@@ -13187,63 +13390,97 @@ function AdminStudents() {
     <>
       <DashboardHeader
         title="Students"
-        subtitle="View and manage Bible Study students"
+        subtitle="View students, classes, and individual progress"
       />
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns:
-            'minmax(220px, 1fr) minmax(180px, 260px)',
-          gap: '12px',
-          marginTop: '24px',
-          marginBottom: '18px'
-        }}
-      >
-        <input
-          type="search"
-          placeholder="Search students..."
-          value={search}
-          onChange={(event) =>
-            setSearch(event.target.value)
-          }
-          style={{
-            width: '100%',
-            padding: '12px 14px',
-            borderRadius: '12px',
-            border: '1px solid #dfe2ea',
-            background: 'white',
-            outline: 'none'
-          }}
+      {message && !selectedStudent && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      <div className="stats-grid">
+        <StatCard
+          icon={<GraduationCap />}
+          label="Students"
+          value={students.length}
+          helper="All student accounts"
         />
 
-        <select
-          value={classFilter}
-          onChange={(event) =>
-            setClassFilter(event.target.value)
-          }
+        <StatCard
+          icon={<CheckCircle2 />}
+          label="Active"
+          value={activeCount}
+          helper="Active students"
+        />
+
+        <StatCard
+          icon={<Users />}
+          label="Unassigned"
+          value={unassignedCount}
+          helper="Need a class"
+        />
+
+        <StatCard
+          icon={<Trophy />}
+          label="Points Earned"
+          value={totalPoints}
+          helper="All students"
+        />
+      </div>
+
+      <section className="dashboard-card">
+        <div
           style={{
-            width: '100%',
-            padding: '12px 14px',
-            borderRadius: '12px',
-            border: '1px solid #dfe2ea',
-            background: 'white'
+            display: 'grid',
+            gridTemplateColumns:
+              'minmax(220px, 1fr) minmax(180px, 260px)',
+            gap: '12px'
           }}
         >
-          <option value="all">
-            All Classes
-          </option>
+          <input
+            type="search"
+            placeholder="Search students..."
+            value={search}
+            onChange={(event) =>
+              setSearch(event.target.value)
+            }
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              border: '1px solid #dfe2ea',
+              background: 'white',
+              outline: 'none'
+            }}
+          />
 
-          {classes.map((classItem) => (
-            <option
-              key={classItem.id}
-              value={classItem.id}
-            >
-              {classItem.name}
-            </option>
-          ))}
-        </select>
-      </div>
+          <select
+            value={classFilter}
+            onChange={(event) =>
+              setClassFilter(event.target.value)
+            }
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              border: '1px solid #dfe2ea',
+              background: 'white'
+            }}
+          >
+            <option value="all">All Classes</option>
+
+            {classes.map((classItem) => (
+              <option
+                key={classItem.id}
+                value={classItem.id}
+              >
+                {classItem.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
 
       <section className="dashboard-card">
         <div
@@ -13282,7 +13519,9 @@ function AdminStudents() {
                   <th>Name</th>
                   <th>Class</th>
                   <th>Grade</th>
-                  <th>Status</th>
+                  <th>Attendance</th>
+                  <th>Reading</th>
+                  <th>Points</th>
                   <th></th>
                 </tr>
               </thead>
@@ -13291,6 +13530,8 @@ function AdminStudents() {
                 {visibleStudents.map((student) => {
                   const studentClass =
                     getStudentClass(student.id)
+                  const stats =
+                    studentStats[student.id] || {}
 
                   return (
                     <tr key={student.id}>
@@ -13299,6 +13540,18 @@ function AdminStudents() {
                           {student.first_name}{' '}
                           {student.last_name}
                         </strong>
+
+                        {!student.active && (
+                          <div
+                            style={{
+                              color: '#b42318',
+                              fontSize: '11px',
+                              marginTop: '2px'
+                            }}
+                          >
+                            Inactive
+                          </div>
+                        )}
                       </td>
 
                       <td>
@@ -13306,31 +13559,31 @@ function AdminStudents() {
                           'Unassigned'}
                       </td>
 
+                      <td>{student.grade || '—'}</td>
+
                       <td>
-                        {student.grade || '—'}
+                        {stats.attendance || 0}%
                       </td>
 
                       <td>
-                        {student.active
-                          ? 'Active'
-                          : 'Inactive'}
+                        {stats.reading || 0}%
                       </td>
 
-                      <td
-                        style={{
-                          textAlign: 'right'
-                        }}
-                      >
+                      <td>
+                        <strong>
+                          {stats.points || 0}
+                        </strong>
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
                         <button
+                          type="button"
                           onClick={() =>
-                            setSelectedStudent(
-                              student
-                            )
+                            setSelectedStudent(student)
                           }
                           style={{
                             border: 'none',
-                            background:
-                              'transparent',
+                            background: 'transparent',
                             color: '#6b35c0',
                             fontWeight: '700',
                             cursor: 'pointer',
@@ -13340,9 +13593,7 @@ function AdminStudents() {
                           }}
                         >
                           View
-                          <ChevronRight
-                            size={17}
-                          />
+                          <ChevronRight size={17} />
                         </button>
                       </td>
                     </tr>
@@ -13351,9 +13602,8 @@ function AdminStudents() {
 
                 {!visibleStudents.length && (
                   <tr>
-                    <td colSpan="5">
-                      No students match these
-                      filters.
+                    <td colSpan="7">
+                      No students match these filters.
                     </td>
                   </tr>
                 )}
