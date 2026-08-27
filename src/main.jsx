@@ -39,10 +39,7 @@ const navigation = {
   servant: [
     ['Dashboard', LayoutDashboard],
     ['My Class', Users],
-    ['Daily Readings', BookOpen],
-    ['Weekly Assignments', ClipboardCheck],
-    ['Attendance', CheckCircle2],
-    ['Quick Entry', ClipboardCheck],
+    ['Weekly Management', CalendarDays],
     ['Students', GraduationCap],
     ['Reports', BarChart3],
     ['Profile', UserRound]
@@ -390,20 +387,8 @@ function DashboardShell({ profile }) {
         return <ServantMyClass profile={profile} />
       }
 
-      if (activePage === 'Daily Readings') {
-        return <ServantDailyReadings profile={profile} />
-      }
-
-      if (activePage === 'Weekly Assignments') {
-        return <ServantWeeklyAssignments profile={profile} />
-      }
-
-      if (activePage === 'Attendance') {
-        return <ServantAttendance profile={profile} />
-      }
-
-      if (activePage === 'Quick Entry') {
-        return <ServantQuickEntry profile={profile} />
+      if (activePage === 'Weekly Management') {
+        return <ServantWeeklyManagement profile={profile} />
       }
 
       if (activePage === 'Students') {
@@ -4927,6 +4912,138 @@ function ServantMyClass({ profile }) {
 
 
 
+
+function ServantWeeklyManagement({ profile }) {
+  const [section, setSection] = useState('readings')
+
+  const tabs = [
+    {
+      id: 'readings',
+      label: 'Daily Readings',
+      icon: BookOpen,
+      description: 'Assign the Bible reading for each day.'
+    },
+    {
+      id: 'assignments',
+      label: 'Weekly Assignments',
+      icon: ClipboardCheck,
+      description: 'Set the memory verse and build the homework quiz.'
+    },
+    {
+      id: 'quick-entry',
+      label: 'Friday Quick Entry',
+      icon: CheckCircle2,
+      description: 'Record attendance, verse recitation, Bible, points, and more.'
+    },
+    {
+      id: 'attendance',
+      label: 'Attendance',
+      icon: Users,
+      description: 'Open the dedicated attendance editor when needed.'
+    }
+  ]
+
+  return (
+    <>
+      <DashboardHeader
+        title="Weekly Management"
+        subtitle="Plan the week and record Friday progress from one place."
+      />
+
+      <section
+        className="dashboard-card"
+        style={{ marginTop: '24px' }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: '12px'
+          }}
+        >
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const active = section === tab.id
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSection(tab.id)}
+                style={{
+                  border: active
+                    ? '2px solid #6b35c0'
+                    : '1px solid #e6e6ee',
+                  background: active ? '#f7f2ff' : 'white',
+                  borderRadius: '16px',
+                  padding: '16px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  font: 'inherit'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    marginBottom: '8px'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: active ? '#eadeff' : '#f3f3f7',
+                      color: active ? '#6b35c0' : '#596070'
+                    }}
+                  >
+                    <Icon size={19} />
+                  </div>
+
+                  <strong>{tab.label}</strong>
+                </div>
+
+                <span
+                  style={{
+                    color: '#6b7280',
+                    fontSize: '13px',
+                    lineHeight: 1.45
+                  }}
+                >
+                  {tab.description}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      <div style={{ marginTop: '18px' }}>
+        {section === 'readings' && (
+          <ServantDailyReadings profile={profile} />
+        )}
+
+        {section === 'assignments' && (
+          <ServantWeeklyAssignments profile={profile} />
+        )}
+
+        {section === 'quick-entry' && (
+          <ServantQuickEntry profile={profile} />
+        )}
+
+        {section === 'attendance' && (
+          <ServantAttendance profile={profile} />
+        )}
+      </div>
+    </>
+  )
+}
 
 function ServantDailyReadings({ profile }) {
   const today = new Date().toISOString().slice(0, 10)
