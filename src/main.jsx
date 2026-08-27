@@ -2231,6 +2231,25 @@ function StudentHomework({ profile }) {
     )
   }
 
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
+  function isPastDue(quiz) {
+    if (!quiz.due_date || submissionForQuiz(quiz.id)) return false
+    const today = new Date().toISOString().slice(0, 10)
+    return quiz.due_date < today
+  }
+
   async function openQuiz(quiz) {
     const existingSubmission = submissionForQuiz(quiz.id)
 
@@ -2689,8 +2708,10 @@ function StudentHomework({ profile }) {
           title={activeQuiz.title}
           subtitle={
             activeQuiz.due_date
-              ? `Due ${activeQuiz.due_date}`
-              : `Bible Study Week: ${activeQuiz.bible_study_date}`
+              ? `Due ${prettyDate(activeQuiz.due_date)}`
+              : `Bible Study Week: ${prettyDate(
+                  activeQuiz.bible_study_date
+                )}`
           }
         />
 
@@ -2719,7 +2740,20 @@ function StudentHomework({ profile }) {
           </section>
         ) : result ? (
           <section className="dashboard-card">
-            <h2>Homework Complete 🎉</h2>
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '8px 0 18px'
+              }}
+            >
+              <div style={{ fontSize: '42px' }}>🎉</div>
+              <h2 style={{ marginBottom: '5px' }}>
+                Homework Complete!
+              </h2>
+              <p style={{ color: '#6b7280', margin: 0 }}>
+                Your answers have been submitted and graded.
+              </p>
+            </div>
 
             <div className="stats-grid">
               <StatCard
@@ -2737,14 +2771,19 @@ function StudentHomework({ profile }) {
               />
             </div>
 
-            <p
+            <div
               style={{
                 marginTop: '18px',
-                color: '#6b7280'
+                padding: '14px 16px',
+                borderRadius: '12px',
+                background: '#ecfdf3',
+                color: '#087257',
+                fontWeight: '700'
               }}
             >
-              This homework has already been submitted.
-            </p>
+              ✓ This homework is complete. You cannot retake it after
+              submitting.
+            </div>
           </section>
         ) : (
           <section className="dashboard-card">
@@ -2785,6 +2824,29 @@ function StudentHomework({ profile }) {
     )
   }
 
+  const completedQuizzes = quizzes.filter(
+    (quiz) => submissionForQuiz(quiz.id)
+  ).length
+
+  const pendingQuizzes = quizzes.filter(
+    (quiz) => !submissionForQuiz(quiz.id)
+  ).length
+
+  const gradedSubmissions = submissions.filter(
+    (submission) =>
+      quizzes.some((quiz) => quiz.id === submission.quiz_id)
+  )
+
+  const averageScore = gradedSubmissions.length
+    ? Math.round(
+        gradedSubmissions.reduce(
+          (sum, submission) =>
+            sum + (Number(submission.percentage) || 0),
+          0
+        ) / gradedSubmissions.length
+      )
+    : null
+
   return (
     <>
       <DashboardHeader
@@ -2803,100 +2865,264 @@ function StudentHomework({ profile }) {
           <p>Loading homework...</p>
         </section>
       ) : (
-        <section
-          className="dashboard-card"
-          style={{ marginTop: '24px' }}
-        >
-          <h2>My Homework</h2>
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<ClipboardCheck />}
+              label="Assigned"
+              value={quizzes.length}
+              helper="Homework quizzes"
+            />
 
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Bible Study Week</th>
-                  <th>Quiz</th>
-                  <th>Due</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Completed"
+              value={completedQuizzes}
+              helper="Submitted quizzes"
+            />
 
-              <tbody>
+            <StatCard
+              icon={<BookOpen />}
+              label="To Do"
+              value={pendingQuizzes}
+              helper="Still waiting for you"
+            />
+
+            <StatCard
+              icon={<Trophy />}
+              label="Quiz Average"
+              value={
+                averageScore === null
+                  ? '—'
+                  : `${averageScore}%`
+              }
+              helper="Across completed homework"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  My Homework
+                </h2>
+                <p
+                  style={{
+                    color: '#6b7280',
+                    margin: 0
+                  }}
+                >
+                  Complete each quiz once. Your score will appear
+                  here after you submit.
+                </p>
+              </div>
+
+              {!!pendingQuizzes && (
+                <span
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '999px',
+                    background: '#fff7e6',
+                    color: '#8a5a00',
+                    fontSize: '12px',
+                    fontWeight: '800'
+                  }}
+                >
+                  {pendingQuizzes} TO DO
+                </span>
+              )}
+            </div>
+
+            {!quizzes.length ? (
+              <div
+                style={{
+                  marginTop: '18px',
+                  padding: '24px',
+                  border: '1px solid #ececf2',
+                  borderRadius: '16px',
+                  textAlign: 'center'
+                }}
+              >
+                <div style={{ fontSize: '34px' }}>✏️</div>
+                <h3>No homework yet</h3>
+                <p
+                  style={{
+                    color: '#6b7280',
+                    marginBottom: 0
+                  }}
+                >
+                  Your assigned Bible Study quizzes will appear here.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '14px',
+                  marginTop: '20px'
+                }}
+              >
                 {quizzes.map((quiz) => {
                   const submission =
                     submissionForQuiz(quiz.id)
+                  const overdue = isPastDue(quiz)
 
                   return (
-                    <tr key={quiz.id}>
-                      <td>{quiz.bible_study_date}</td>
-                      <td>
-                        <strong>{quiz.title}</strong>
-                      </td>
-                      <td>{quiz.due_date || '—'}</td>
-                      <td>
-                        {submission ? (
-                          <span
-                            style={{
-                              color: '#087257',
-                              fontWeight: '700'
-                            }}
-                          >
-                            Completed •{' '}
-                            {Math.round(
-                              Number(submission.percentage) || 0
-                            )}
-                            %
-                          </span>
-                        ) : (
-                          <span
-                            style={{
-                              color: '#8a5a00',
-                              fontWeight: '700'
-                            }}
-                          >
-                            Not completed
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => openQuiz(quiz)}
+                    <div
+                      key={quiz.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'minmax(0, 1fr) auto',
+                        gap: '18px',
+                        alignItems: 'center',
+                        border: submission
+                          ? '1px solid #b7ead5'
+                          : overdue
+                            ? '1px solid #f0c7c3'
+                            : '1px solid #e7e7ef',
+                        background: submission
+                          ? '#f7fcf9'
+                          : 'white',
+                        borderRadius: '16px',
+                        padding: '18px'
+                      }}
+                    >
+                      <div>
+                        <div
                           style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#6b35c0',
-                            fontWeight: '700',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
+                            display: 'flex',
+                            gap: '8px',
                             alignItems: 'center',
-                            gap: '4px'
+                            flexWrap: 'wrap',
+                            marginBottom: '7px'
                           }}
                         >
-                          {submission ? 'View Score' : 'Take Quiz'}
-                          <ChevronRight size={17} />
-                        </button>
-                      </td>
-                    </tr>
+                          <span
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '999px',
+                              background: submission
+                                ? '#dcfaeb'
+                                : overdue
+                                  ? '#fef3f2'
+                                  : '#f3edff',
+                              color: submission
+                                ? '#087257'
+                                : overdue
+                                  ? '#b42318'
+                                  : '#6b35c0',
+                              fontSize: '11px',
+                              fontWeight: '800'
+                            }}
+                          >
+                            {submission
+                              ? 'COMPLETED ✓'
+                              : overdue
+                                ? 'PAST DUE'
+                                : 'TO DO'}
+                          </span>
+
+                          <span
+                            style={{
+                              color: '#8a8f9c',
+                              fontSize: '12px'
+                            }}
+                          >
+                            Week of {prettyDate(
+                              quiz.bible_study_date
+                            )}
+                          </span>
+                        </div>
+
+                        <h3
+                          style={{
+                            margin: '0 0 7px',
+                            fontSize: '17px'
+                          }}
+                        >
+                          {quiz.title}
+                        </h3>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '14px',
+                            flexWrap: 'wrap',
+                            color: '#6b7280',
+                            fontSize: '13px'
+                          }}
+                        >
+                          <span>
+                            Due: {prettyDate(quiz.due_date)}
+                          </span>
+
+                          {submission && (
+                            <strong
+                              style={{
+                                color: '#087257'
+                              }}
+                            >
+                              Score:{' '}
+                              {Math.round(
+                                Number(
+                                  submission.percentage
+                                ) || 0
+                              )}
+                              %
+                            </strong>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openQuiz(quiz)}
+                        style={{
+                          border: submission
+                            ? '1px solid #cfe9dd'
+                            : 'none',
+                          background: submission
+                            ? 'white'
+                            : '#6b35c0',
+                          color: submission
+                            ? '#6b35c0'
+                            : 'white',
+                          fontWeight: '800',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px',
+                          padding: '10px 14px',
+                          borderRadius: '10px',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {submission
+                          ? 'View Score'
+                          : 'Take Quiz'}
+                        <ChevronRight size={17} />
+                      </button>
+                    </div>
                   )
                 })}
-
-                {!quizzes.length && (
-                  <tr>
-                    <td colSpan="5">
-                      No homework has been assigned yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </>
   )
 }
-
 
 
 function StudentMemoryVerses({ profile }) {
