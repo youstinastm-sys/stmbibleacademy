@@ -17,7 +17,9 @@ import {
   ArrowLeft,
   ChevronRight,
   CalendarDays,
-  Clock
+  Clock,
+  Menu,
+  X
 } from 'lucide-react'
 
 import { supabase } from './supabase'
@@ -339,6 +341,12 @@ function Login() {
 function DashboardShell({ profile }) {
   const role = profile.role
   const [activePage, setActivePage] = useState('Dashboard')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  function changePage(label) {
+    setActivePage(label)
+    setMobileMenuOpen(false)
+  }
 
   function renderPage() {
     if (role === 'admin') {
@@ -461,7 +469,46 @@ function DashboardShell({ profile }) {
 
   return (
     <div className={`app-layout ${role}`}>
-      <aside className="sidebar">
+      <header className="mobile-topbar">
+        <button
+          type="button"
+          className="mobile-menu-button"
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label="Open navigation"
+        >
+          <Menu size={24} />
+        </button>
+
+        <div className="mobile-brand">
+          <div className="mobile-brand-logo">
+            <BookOpen size={19} />
+          </div>
+
+          <div>
+            <strong>BIBLE STUDY</strong>
+            <span>ACADEMY</span>
+          </div>
+        </div>
+
+        <div className="mobile-avatar">
+          {profile.first_name?.charAt(0) || '?'}
+        </div>
+      </header>
+
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          className="mobile-sidebar-overlay"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
+
+      <aside
+        className={`sidebar ${
+          mobileMenuOpen ? 'mobile-open' : ''
+        }`}
+      >
         <div className="sidebar-brand">
           <div className="sidebar-logo">
             <BookOpen size={23} />
@@ -471,6 +518,15 @@ function DashboardShell({ profile }) {
             <strong>BIBLE STUDY</strong>
             <span>ACADEMY</span>
           </div>
+
+          <button
+            type="button"
+            className="mobile-close-button"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-label="Close navigation"
+          >
+            <X size={22} />
+          </button>
         </div>
 
         <nav className="sidebar-nav">
@@ -480,7 +536,7 @@ function DashboardShell({ profile }) {
               className={
                 activePage === label ? 'active' : ''
               }
-              onClick={() => setActivePage(label)}
+              onClick={() => changePage(label)}
             >
               <Icon size={18} />
               <span>{label}</span>
@@ -517,6 +573,7 @@ function DashboardShell({ profile }) {
     </div>
   )
 }
+
 
 function StudentDashboard({ profile }) {
   const [stats, setStats] = useState({
