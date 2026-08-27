@@ -12095,12 +12095,21 @@ function AdminDashboard() {
 
 function AdminClasses() {
   const [classes, setClasses] = useState([])
+  const [classCounts, setClassCounts] = useState({})
   const [selectedClass, setSelectedClass] = useState(null)
   const [students, setStudents] = useState([])
   const [servants, setServants] = useState([])
+  const [classStats, setClassStats] = useState({
+    attendance: 0,
+    reading: 0,
+    homework: 0,
+    verse: 0,
+    bible: 0,
+    points: 0
+  })
   const [loading, setLoading] = useState(true)
-  const [detailLoading, setDetailLoading] =
-    useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     loadClasses()
@@ -12108,30 +12117,83 @@ function AdminClasses() {
 
   async function loadClasses() {
     setLoading(true)
+    setMessage('')
 
-    const { data, error } = await supabase
-      .from('classes')
-      .select('*')
-      .eq('active', true)
-      .order('id')
+    const [classesResult, membersResult, servantsResult] =
+      await Promise.all([
+        supabase
+          .from('classes')
+          .select('*')
+          .eq('active', true)
+          .order('id'),
 
-    if (error) {
-      console.error('Classes error:', error)
+        supabase
+          .from('class_members')
+          .select('class_id, student_id'),
+
+        supabase
+          .from('servant_classes')
+          .select('class_id, servant_id')
+      ])
+
+    const firstError =
+      classesResult.error ||
+      membersResult.error ||
+      servantsResult.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
     }
 
-    setClasses(data || [])
+    const rows = classesResult.data || []
+    setClasses(rows)
+
+    const counts = {}
+
+    rows.forEach((classItem) => {
+      counts[classItem.id] = {
+        students: (membersResult.data || []).filter(
+          (row) => Number(row.class_id) === Number(classItem.id)
+        ).length,
+        servants: (servantsResult.data || []).filter(
+          (row) => Number(row.class_id) === Number(classItem.id)
+        ).length
+      }
+    })
+
+    setClassCounts(counts)
     setLoading(false)
+  }
+
+  function countTrue(records, field) {
+    return records.filter((record) => record[field] === true).length
+  }
+
+  function percent(done, total) {
+    return total ? Math.round((done / total) * 100) : 0
   }
 
   async function openClass(classItem) {
     setSelectedClass(classItem)
     setDetailLoading(true)
+    setMessage('')
     setStudents([])
     setServants([])
+    setClassStats({
+      attendance: 0,
+      reading: 0,
+      homework: 0,
+      verse: 0,
+      bible: 0,
+      points: 0
+    })
 
     const [
       studentMembershipsResult,
-      servantMembershipsResult
+      servantMembershipsResult,
+      rulesResult
     ] = await Promise.all([
       supabase
         .from('class_members')
@@ -12141,8 +12203,23 @@ function AdminClasses() {
       supabase
         .from('servant_classes')
         .select('servant_id')
-        .eq('class_id', classItem.id)
+        .eq('class_id', classItem.id),
+
+      supabase
+        .from('point_rules')
+        .select('category, points')
     ])
+
+    const firstError =
+      studentMembershipsResult.error ||
+      servantMembershipsResult.error ||
+      rulesResult.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setDetailLoading(false)
+      return
+    }
 
     const studentIds =
       studentMembershipsResult.data?.map(
@@ -12154,29 +12231,165 @@ function AdminClasses() {
         (record) => record.servant_id
       ) || []
 
+    let studentProfiles = []
+    let servantProfiles = []
+
     if (studentIds.length) {
-      const { data: studentProfiles } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select(
-          'id, first_name, last_name, grade, active'
-        )
+        .select('id, first_name, last_name, grade, active')
         .in('id', studentIds)
         .order('first_name')
 
-      setStudents(studentProfiles || [])
+      if (error) {
+        setMessage(error.message)
+        setDetailLoading(false)
+        return
+      }
+
+      studentProfiles = data || []
     }
 
     if (servantIds.length) {
-      const { data: servantProfiles } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select(
-          'id, first_name, last_name, active'
-        )
+        .select('id, first_name, last_name, active')
         .in('id', servantIds)
         .order('first_name')
 
-      setServants(servantProfiles || [])
+      if (error) {
+        setMessage(error.message)
+        setDetailLoading(false)
+        return
+      }
+
+      servantProfiles = data || []
     }
+
+    setStudents(studentProfiles)
+    setServants(servantProfiles)
+
+    if (!studentIds.length) {
+      setDetailLoading(false)
+      return
+    }
+
+    const [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      biblesResult,
+      participationResult,
+      bonusResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('student_id, present')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('daily_reading')
+        .select('student_id, completed')
+        .in('student_id', studentIds),
+
+      supabase
+        .from('homework')
+        .select('student_id, completed')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('memory_verses')
+        .select('student_id, completed')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('physical_bible')
+        .select('student_id, brought_bible')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('participation')
+        .select('student_id, points')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, points')
+        .eq('class_id', classItem.id)
+        .in('student_id', studentIds)
+    ])
+
+    const results = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      versesResult,
+      biblesResult,
+      participationResult,
+      bonusResult
+    ]
+
+    const statsError =
+      results.find((result) => result.error)?.error
+
+    if (statsError) {
+      setMessage(statsError.message)
+      setDetailLoading(false)
+      return
+    }
+
+    const attendance = attendanceResult.data || []
+    const reading = readingResult.data || []
+    const homework = homeworkResult.data || []
+    const verses = versesResult.data || []
+    const bibles = biblesResult.data || []
+    const participation = participationResult.data || []
+    const bonus = bonusResult.data || []
+
+    const attendanceDone = countTrue(attendance, 'present')
+    const readingDone = countTrue(reading, 'completed')
+    const homeworkDone = countTrue(homework, 'completed')
+    const verseDone = countTrue(verses, 'completed')
+    const bibleDone = countTrue(bibles, 'brought_bible')
+
+    const rules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      rules[rule.category] = Number(rule.points) || 0
+    })
+
+    const participationPoints = participation.reduce(
+      (sum, row) => sum + (Number(row.points) || 0),
+      0
+    )
+
+    const bonusPoints = bonus.reduce(
+      (sum, row) => sum + (Number(row.points) || 0),
+      0
+    )
+
+    const points =
+      attendanceDone * (rules.attendance || 0) +
+      readingDone * (rules.daily_reading || 0) +
+      homeworkDone * (rules.homework || 0) +
+      verseDone * (rules.memory_verse || 0) +
+      bibleDone * (rules.physical_bible || 0) +
+      participationPoints +
+      bonusPoints
+
+    setClassStats({
+      attendance: percent(attendanceDone, attendance.length),
+      reading: percent(readingDone, reading.length),
+      homework: percent(homeworkDone, homework.length),
+      verse: percent(verseDone, verses.length),
+      bible: percent(bibleDone, bibles.length),
+      points
+    })
 
     setDetailLoading(false)
   }
@@ -12185,14 +12398,20 @@ function AdminClasses() {
     return (
       <>
         <button
-          onClick={() => setSelectedClass(null)}
+          type="button"
+          onClick={() => {
+            setSelectedClass(null)
+            setStudents([])
+            setServants([])
+            setMessage('')
+          }}
           style={{
             border: 'none',
             background: 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            padding: '0',
+            padding: 0,
             marginBottom: '18px',
             cursor: 'pointer',
             color: '#6b35c0',
@@ -12211,35 +12430,11 @@ function AdminClasses() {
           }
         />
 
-        <div className="stats-grid">
-          <StatCard
-            icon={<GraduationCap />}
-            label="Students"
-            value={students.length}
-            helper="Assigned students"
-          />
-
-          <StatCard
-            icon={<UserRound />}
-            label="Servants"
-            value={servants.length}
-            helper="Assigned servants"
-          />
-
-          <StatCard
-            icon={<CheckCircle2 />}
-            label="Attendance"
-            value="—"
-            helper="Coming soon"
-          />
-
-          <StatCard
-            icon={<Trophy />}
-            label="Class Points"
-            value="—"
-            helper="Coming soon"
-          />
-        </div>
+        {message && (
+          <section className="dashboard-card">
+            <p>{message}</p>
+          </section>
+        )}
 
         {detailLoading ? (
           <section className="dashboard-card">
@@ -12247,6 +12442,72 @@ function AdminClasses() {
           </section>
         ) : (
           <>
+            <div className="stats-grid">
+              <StatCard
+                icon={<GraduationCap />}
+                label="Students"
+                value={students.length}
+                helper="Assigned students"
+              />
+
+              <StatCard
+                icon={<UserRound />}
+                label="Servants"
+                value={servants.length}
+                helper="Assigned servants"
+              />
+
+              <StatCard
+                icon={<CheckCircle2 />}
+                label="Attendance"
+                value={`${classStats.attendance}%`}
+                helper="Class average"
+              />
+
+              <StatCard
+                icon={<Trophy />}
+                label="Class Points"
+                value={classStats.points}
+                helper="Total earned"
+              />
+            </div>
+
+            <section className="dashboard-card">
+              <h2>Class Progress</h2>
+
+              <div className="progress-grid">
+                <ProgressCircle
+                  label="Attendance"
+                  value={classStats.attendance}
+                  emoji="⛪"
+                />
+
+                <ProgressCircle
+                  label="Daily Reading"
+                  value={classStats.reading}
+                  emoji="📖"
+                />
+
+                <ProgressCircle
+                  label="Homework"
+                  value={classStats.homework}
+                  emoji="✏️"
+                />
+
+                <ProgressCircle
+                  label="Memory Verse"
+                  value={classStats.verse}
+                  emoji="🧠"
+                />
+
+                <ProgressCircle
+                  label="Physical Bible"
+                  value={classStats.bible}
+                  emoji="📕"
+                />
+              </div>
+            </section>
+
             <section className="dashboard-card">
               <h2>Students</h2>
 
@@ -12270,13 +12531,11 @@ function AdminClasses() {
                           </strong>
                         </td>
 
-                        <td>
-                          {student.grade || '—'}
-                        </td>
+                        <td>{student.grade || '—'}</td>
 
                         <td>
                           {student.active
-                            ? 'Active'
+                            ? '✓ Active'
                             : 'Inactive'}
                         </td>
                       </tr>
@@ -12285,8 +12544,7 @@ function AdminClasses() {
                     {!students.length && (
                       <tr>
                         <td colSpan="3">
-                          No students are assigned to this
-                          class yet.
+                          No students are assigned to this class yet.
                         </td>
                       </tr>
                     )}
@@ -12319,7 +12577,7 @@ function AdminClasses() {
 
                         <td>
                           {servant.active
-                            ? 'Active'
+                            ? '✓ Active'
                             : 'Inactive'}
                         </td>
                       </tr>
@@ -12328,8 +12586,7 @@ function AdminClasses() {
                     {!servants.length && (
                       <tr>
                         <td colSpan="2">
-                          No servants are assigned to this
-                          class yet.
+                          No servants are assigned to this class yet.
                         </td>
                       </tr>
                     )}
@@ -12347,49 +12604,206 @@ function AdminClasses() {
     <>
       <DashboardHeader
         title="Classes"
-        subtitle="Manage Bible Study groups and view class rosters"
+        subtitle="View Bible Study groups, rosters, and class progress"
       />
 
-      <div style={{ marginTop: '24px' }}>
-        {loading ? (
-          <section className="dashboard-card">
-            <p>Loading classes...</p>
-          </section>
-        ) : (
-          <div className="classes-grid">
-            {classes.map((classItem) => (
-              <button
-                key={classItem.id}
-                className="class-card"
-                onClick={() => openClass(classItem)}
-                style={{
-                  width: '100%',
-                  background: 'white',
-                  cursor: 'pointer',
-                  textAlign: 'left'
-                }}
-              >
-                <div className="class-icon">
-                  <BookOpen size={22} />
-                </div>
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
 
-                <div style={{ flex: 1 }}>
-                  <strong>{classItem.name}</strong>
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading classes...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<BookOpen />}
+              label="Active Classes"
+              value={classes.length}
+              helper="Bible Study groups"
+            />
 
-                  <span>
-                    {classItem.grade_group}
-                  </span>
-                </div>
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={Object.values(classCounts).reduce(
+                (sum, row) => sum + (row.students || 0),
+                0
+              )}
+              helper="Assigned across classes"
+            />
 
-                <ChevronRight
-                  size={20}
-                  color="#8b90a1"
-                />
-              </button>
-            ))}
+            <StatCard
+              icon={<UserRound />}
+              label="Servants"
+              value={Object.values(classCounts).reduce(
+                (sum, row) => sum + (row.servants || 0),
+                0
+              )}
+              helper="Class assignments"
+            />
           </div>
-        )}
-      </div>
+
+          <section className="dashboard-card">
+            <h2>Class Directory</h2>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '16px',
+                marginTop: '20px'
+              }}
+            >
+              {classes.map((classItem) => {
+                const counts = classCounts[classItem.id] || {
+                  students: 0,
+                  servants: 0
+                }
+
+                return (
+                  <button
+                    key={classItem.id}
+                    type="button"
+                    onClick={() => openClass(classItem)}
+                    style={{
+                      border: '1px solid #e7e7ef',
+                      background: 'white',
+                      borderRadius: '16px',
+                      padding: '18px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      font: 'inherit'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '44px',
+                            height: '44px',
+                            borderRadius: '13px',
+                            background: '#efe8ff',
+                            color: '#6b35c0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <BookOpen size={22} />
+                        </div>
+
+                        <div>
+                          <strong
+                            style={{
+                              display: 'block',
+                              fontSize: '16px'
+                            }}
+                          >
+                            {classItem.name}
+                          </strong>
+
+                          <span
+                            style={{
+                              display: 'block',
+                              color: '#6b7280',
+                              fontSize: '13px',
+                              marginTop: '3px'
+                            }}
+                          >
+                            {classItem.grade_group || 'Grade group not set'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <ChevronRight
+                        size={19}
+                        color="#6b35c0"
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '10px',
+                        marginTop: '17px'
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: '#fafafa',
+                          borderRadius: '10px',
+                          padding: '10px'
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: '#8a8f9c',
+                            fontSize: '11px'
+                          }}
+                        >
+                          STUDENTS
+                        </div>
+                        <strong>{counts.students}</strong>
+                      </div>
+
+                      <div
+                        style={{
+                          background: '#fafafa',
+                          borderRadius: '10px',
+                          padding: '10px'
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: '#8a8f9c',
+                            fontSize: '11px'
+                          }}
+                        >
+                          SERVANTS
+                        </div>
+                        <strong>{counts.servants}</strong>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+
+              {!classes.length && (
+                <div
+                  style={{
+                    border: '1px solid #ececf2',
+                    borderRadius: '14px',
+                    padding: '20px',
+                    color: '#6b7280'
+                  }}
+                >
+                  No active classes yet.
+                </div>
+              )}
+            </div>
+          </section>
+        </>
+      )}
     </>
   )
 }
