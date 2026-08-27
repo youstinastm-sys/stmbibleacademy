@@ -287,6 +287,10 @@ function DashboardShell({ profile }) {
         return <ServantStudents profile={profile} />
       }
 
+      if (activePage === 'Reports') {
+        return <ServantReports profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2273,6 +2277,422 @@ function ServantStudents({ profile }) {
           </div>
         )}
       </section>
+    </>
+  )
+}
+
+
+
+function ServantReports({ profile }) {
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [students, setStudents] = useState([])
+  const [attendance, setAttendance] = useState([])
+  const [reading, setReading] = useState([])
+  const [homework, setHomework] = useState([])
+  const [verses, setVerses] = useState([])
+  const [bibles, setBibles] = useState([])
+  const [participation, setParticipation] = useState([])
+  const [bonus, setBonus] = useState([])
+  const [rules, setRules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadReports()
+  }, [])
+
+  async function loadReports() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const [classResult, membershipsResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name')
+        .eq('id', assignment.class_id)
+        .single(),
+
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignment.class_id)
+    ])
+
+    if (classResult.data) {
+      setClassName(classResult.data.name)
+    }
+
+    if (membershipsResult.error) {
+      setMessage(membershipsResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const studentIds =
+      membershipsResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setLoading(false)
+      return
+    }
+
+    const studentsResult = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, grade')
+      .in('id', studentIds)
+      .eq('active', true)
+      .order('first_name')
+
+    if (studentsResult.error) {
+      setMessage(studentsResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const roster = studentsResult.data || []
+    setStudents(roster)
+
+    const ids = roster.map((student) => student.id)
+
+    const results = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('student_id, bible_study_date, present')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('daily_reading')
+        .select('student_id, completed')
+        .in('student_id', ids),
+      supabase
+        .from('homework')
+        .select('student_id, bible_study_date, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('memory_verses')
+        .select('student_id, bible_study_date, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('physical_bible')
+        .select('student_id, bible_study_date, brought_bible')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('participation')
+        .select('student_id, bible_study_date, points')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('bonus_points')
+        .select('student_id, bible_study_date, points')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const firstError =
+      results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    setAttendance(results[0].data || [])
+    setReading(results[1].data || [])
+    setHomework(results[2].data || [])
+    setVerses(results[3].data || [])
+    setBibles(results[4].data || [])
+    setParticipation(results[5].data || [])
+    setBonus(results[6].data || [])
+    setRules(results[7].data || [])
+    setLoading(false)
+  }
+
+  const percentage = (records, field) => {
+    if (!records.length) return 0
+    return Math.round(
+      (records.filter((record) => record[field] === true).length /
+        records.length) *
+        100
+    )
+  }
+
+  const pointRules = {}
+  rules.forEach((rule) => {
+    pointRules[rule.category] = Number(rule.points) || 0
+  })
+
+  function studentPoints(studentId) {
+    const countTrue = (records, field) =>
+      records.filter(
+        (record) =>
+          record.student_id === studentId &&
+          record[field] === true
+      ).length
+
+    return (
+      countTrue(attendance, 'present') *
+        (pointRules.attendance || 0) +
+      countTrue(reading, 'completed') *
+        (pointRules.daily_reading || 0) +
+      countTrue(homework, 'completed') *
+        (pointRules.homework || 0) +
+      countTrue(verses, 'completed') *
+        (pointRules.memory_verse || 0) +
+      countTrue(bibles, 'brought_bible') *
+        (pointRules.physical_bible || 0) +
+      participation
+        .filter((record) => record.student_id === studentId)
+        .reduce(
+          (sum, record) =>
+            sum + (Number(record.points) || 0),
+          0
+        ) +
+      bonus
+        .filter((record) => record.student_id === studentId)
+        .reduce(
+          (sum, record) =>
+            sum + (Number(record.points) || 0),
+          0
+        )
+    )
+  }
+
+  const leaderboard = students
+    .map((student) => ({
+      ...student,
+      points: studentPoints(student.id)
+    }))
+    .sort((a, b) => b.points - a.points)
+
+  const totalPoints = leaderboard.reduce(
+    (sum, student) => sum + student.points,
+    0
+  )
+
+  const attendancePercent = percentage(attendance, 'present')
+  const readingPercent = percentage(reading, 'completed')
+  const homeworkPercent = percentage(homework, 'completed')
+  const versePercent = percentage(verses, 'completed')
+  const biblePercent = percentage(bibles, 'brought_bible')
+
+  const attendanceDates = [
+    ...new Set(
+      attendance
+        .map((record) => record.bible_study_date)
+        .filter(Boolean)
+    )
+  ].sort((a, b) => b.localeCompare(a))
+
+  const recentAttendance = attendanceDates
+    .slice(0, 8)
+    .map((date) => {
+      const records = attendance.filter(
+        (record) => record.bible_study_date === date
+      )
+
+      const present = records.filter(
+        (record) => record.present === true
+      ).length
+
+      return {
+        date,
+        present,
+        total: records.length,
+        percent: records.length
+          ? Math.round((present / records.length) * 100)
+          : 0
+      }
+    })
+
+  return (
+    <>
+      <DashboardHeader
+        title="Reports"
+        subtitle={`${className} • Class performance and progress`}
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading reports...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={students.length}
+              helper="Active roster"
+            />
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Attendance"
+              value={`${attendancePercent}%`}
+              helper="Class average"
+            />
+            <StatCard
+              icon={<BookOpen />}
+              label="Daily Reading"
+              value={`${readingPercent}%`}
+              helper="Class average"
+            />
+            <StatCard
+              icon={<Trophy />}
+              label="Points Awarded"
+              value={totalPoints}
+              helper="Class total"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Class Progress</h2>
+
+            <div className="progress-grid">
+              <ProgressCircle
+                label="Attendance"
+                value={attendancePercent}
+                emoji="⛪"
+              />
+              <ProgressCircle
+                label="Daily Reading"
+                value={readingPercent}
+                emoji="📖"
+              />
+              <ProgressCircle
+                label="Homework"
+                value={homeworkPercent}
+                emoji="✏️"
+              />
+              <ProgressCircle
+                label="Memory Verse"
+                value={versePercent}
+                emoji="🧠"
+              />
+              <ProgressCircle
+                label="Physical Bible"
+                value={biblePercent}
+                emoji="📕"
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Student Leaderboard</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Student</th>
+                    <th>Grade</th>
+                    <th>Points</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {leaderboard.map((student, index) => (
+                    <tr key={student.id}>
+                      <td>#{index + 1}</td>
+                      <td>
+                        <strong>
+                          {student.first_name}{' '}
+                          {student.last_name}
+                        </strong>
+                      </td>
+                      <td>{student.grade || '—'}</td>
+                      <td>
+                        <strong>{student.points}</strong>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!leaderboard.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No students are assigned to this class.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Recent Attendance</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Present</th>
+                    <th>Total</th>
+                    <th>Attendance</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {recentAttendance.map((row) => (
+                    <tr key={row.date}>
+                      <td>{row.date}</td>
+                      <td>{row.present}</td>
+                      <td>{row.total}</td>
+                      <td>{row.percent}%</td>
+                    </tr>
+                  ))}
+
+                  {!recentAttendance.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No attendance has been recorded yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </>
   )
 }
