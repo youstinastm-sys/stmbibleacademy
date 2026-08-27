@@ -512,3 +512,262 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   MOBILE RESPONSIVE LAYOUT
+   Add this entire block to the BOTTOM of src/styles.css
+   ========================================================= */
+
+.mobile-topbar,
+.mobile-close-button,
+.mobile-sidebar-overlay {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app-layout {
+    display: block;
+    min-height: 100vh;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    height: 64px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px;
+    background: #ffffff;
+    border-bottom: 1px solid #e9e7ef;
+    box-shadow: 0 4px 16px rgba(31, 36, 48, 0.05);
+  }
+
+  .mobile-menu-button,
+  .mobile-close-button {
+    border: none;
+    background: transparent;
+    color: #5f2db8;
+    cursor: pointer;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-menu-button:active,
+  .mobile-close-button:active {
+    background: #f3edff;
+  }
+
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .mobile-brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #efe8ff;
+    color: #6b35c0;
+    flex: 0 0 auto;
+  }
+
+  .mobile-brand strong,
+  .mobile-brand span {
+    display: block;
+    line-height: 1.05;
+  }
+
+  .mobile-brand strong {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-brand span {
+    margin-top: 2px;
+    font-size: 10px;
+    color: #6b7280;
+    letter-spacing: 0.12em;
+  }
+
+  .mobile-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #efe8ff;
+    color: #6b35c0;
+    font-weight: 800;
+    flex: 0 0 auto;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    width: min(86vw, 320px) !important;
+    max-width: 320px;
+    transform: translateX(-105%);
+    transition: transform 0.25s ease;
+    box-shadow: 18px 0 40px rgba(31, 36, 48, 0.16);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-brand {
+    position: relative;
+  }
+
+  .mobile-close-button {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .mobile-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    border: none;
+    background: rgba(25, 22, 34, 0.42);
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .dashboard-main {
+    width: 100% !important;
+    margin-left: 0 !important;
+    padding: 20px 16px 36px !important;
+    min-width: 0;
+  }
+
+  .dashboard-header {
+    margin-bottom: 18px;
+  }
+
+  .dashboard-header h1 {
+    font-size: 26px;
+    line-height: 1.15;
+  }
+
+  .stats-grid,
+  .progress-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dashboard-card {
+    padding: 18px !important;
+    border-radius: 16px !important;
+  }
+
+  .scripture-banner {
+    padding: 18px !important;
+  }
+
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-wrapper table {
+    min-width: 640px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  .primary-button,
+  .small-button {
+    min-height: 44px;
+  }
+
+  .login-page {
+    align-items: flex-start !important;
+    padding: 24px 14px !important;
+  }
+
+  .login-page > div {
+    max-width: 100% !important;
+  }
+
+  .login-card {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .login-card form {
+    max-width: 100% !important;
+  }
+
+  .weekly-goal {
+    align-items: flex-start !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .mobile-topbar {
+    height: 60px;
+    padding: 0 12px;
+  }
+
+  .dashboard-main {
+    padding: 16px 12px 32px !important;
+  }
+
+  .dashboard-card {
+    padding: 16px !important;
+  }
+
+  .dashboard-header h1 {
+    font-size: 23px;
+  }
+
+  .dashboard-header p {
+    font-size: 14px;
+  }
+
+  .stat-card {
+    min-width: 0;
+  }
+
+  .table-wrapper table {
+    min-width: 560px;
+  }
+
+  .sidebar-nav button {
+    min-height: 46px;
+  }
+
+  .sidebar-user {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
