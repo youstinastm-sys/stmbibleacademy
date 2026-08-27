@@ -275,6 +275,10 @@ function DashboardShell({ profile }) {
         return <ServantMyClass profile={profile} />
       }
 
+      if (activePage === 'Attendance') {
+        return <ServantAttendance profile={profile} />
+      }
+
       if (activePage === 'Quick Entry') {
         return <ServantQuickEntry profile={profile} />
       }
@@ -1007,6 +1011,470 @@ function ServantMyClass({ profile }) {
           </section>
         </>
       ) : null}
+    </>
+  )
+}
+
+
+
+function ServantAttendance({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [students, setStudents] = useState([])
+  const [date, setDate] = useState(today)
+  const [attendance, setAttendance] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [loadingRecords, setLoadingRecords] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadAssignedClass()
+  }, [])
+
+  useEffect(() => {
+    if (classId && students.length && date) {
+      loadAttendance()
+    }
+  }, [classId, students.length, date])
+
+  async function loadAssignedClass() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const [classResult, membershipResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name')
+        .eq('id', assignment.class_id)
+        .single(),
+
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignment.class_id)
+    ])
+
+    if (classResult.data) {
+      setClassName(classResult.data.name)
+    }
+
+    if (membershipResult.error) {
+      setMessage(membershipResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const studentIds =
+      membershipResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setAttendance({})
+      setLoading(false)
+      return
+    }
+
+    const { data: roster, error: rosterError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, grade')
+      .in('id', studentIds)
+      .eq('active', true)
+      .order('first_name')
+
+    if (rosterError) {
+      setMessage(rosterError.message)
+      setLoading(false)
+      return
+    }
+
+    const activeStudents = roster || []
+    setStudents(activeStudents)
+
+    const initial = {}
+    activeStudents.forEach((student) => {
+      initial[student.id] = false
+    })
+    setAttendance(initial)
+
+    setLoading(false)
+  }
+
+  async function loadAttendance() {
+    setLoadingRecords(true)
+    setMessage('')
+
+    const studentIds = students.map((student) => student.id)
+
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('student_id, present')
+      .eq('class_id', classId)
+      .eq('bible_study_date', date)
+      .in('student_id', studentIds)
+
+    if (error) {
+      setMessage(error.message)
+      setLoadingRecords(false)
+      return
+    }
+
+    const next = {}
+    students.forEach((student) => {
+      next[student.id] = false
+    })
+
+    ;(data || []).forEach((record) => {
+      if (record.student_id in next) {
+        next[record.student_id] = record.present === true
+      }
+    })
+
+    setAttendance(next)
+    setLoadingRecords(false)
+  }
+
+  function setStudentAttendance(studentId, present) {
+    setAttendance((current) => ({
+      ...current,
+      [studentId]: present
+    }))
+    setMessage('')
+  }
+
+  function markAll(present) {
+    const next = {}
+    students.forEach((student) => {
+      next[student.id] = present
+    })
+    setAttendance(next)
+    setMessage('')
+  }
+
+  async function saveAttendance() {
+    if (!classId || !students.length) return
+
+    setSaving(true)
+    setMessage('')
+
+    try {
+      for (const student of students) {
+        const { error: deleteError } = await supabase
+          .from('attendance')
+          .delete()
+          .eq('student_id', student.id)
+          .eq('class_id', classId)
+          .eq('bible_study_date', date)
+
+        if (deleteError) throw deleteError
+
+        const { error: insertError } = await supabase
+          .from('attendance')
+          .insert({
+            student_id: student.id,
+            class_id: classId,
+            bible_study_date: date,
+            present: attendance[student.id] === true,
+            recorded_by: profile.id
+          })
+
+        if (insertError) throw insertError
+      }
+
+      setMessage('Attendance saved successfully.')
+      await loadAttendance()
+    } catch (error) {
+      console.error('Attendance save error:', error)
+      setMessage(
+        error?.message ||
+          'Could not save attendance. Please try again.'
+      )
+    }
+
+    setSaving(false)
+  }
+
+  const presentCount = students.filter(
+    (student) => attendance[student.id] === true
+  ).length
+
+  const absentCount = Math.max(
+    0,
+    students.length - presentCount
+  )
+
+  const attendancePercent = students.length
+    ? Math.round((presentCount / students.length) * 100)
+    : 0
+
+  return (
+    <>
+      <DashboardHeader
+        title="Attendance"
+        subtitle={`${className} • Record and edit Bible Study attendance`}
+      />
+
+      <div className="stats-grid">
+        <StatCard
+          icon={<Users />}
+          label="Students"
+          value={students.length}
+          helper="Active roster"
+        />
+
+        <StatCard
+          icon={<CheckCircle2 />}
+          label="Present"
+          value={presentCount}
+          helper="Selected date"
+        />
+
+        <StatCard
+          icon={<UserRound />}
+          label="Absent"
+          value={absentCount}
+          helper="Selected date"
+        />
+
+        <StatCard
+          icon={<BarChart3 />}
+          label="Attendance"
+          value={`${attendancePercent}%`}
+          helper="Selected date"
+        />
+      </div>
+
+      <section className="dashboard-card">
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'end',
+            gap: '16px',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div>
+            <label>Bible Study Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              disabled={saving}
+              style={{ minWidth: '190px' }}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => markAll(true)}
+              disabled={saving || !students.length}
+              style={{
+                border: '1px solid #dfe2ea',
+                background: 'white',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: '700'
+              }}
+            >
+              Mark All Present
+            </button>
+
+            <button
+              type="button"
+              onClick={() => markAll(false)}
+              disabled={saving || !students.length}
+              style={{
+                border: '1px solid #dfe2ea',
+                background: 'white',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: '700'
+              }}
+            >
+              Mark All Absent
+            </button>
+          </div>
+        </div>
+
+        {message && (
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              background: message.includes('successfully')
+                ? '#ecfdf3'
+                : '#fef3f2',
+              color: message.includes('successfully')
+                ? '#087257'
+                : '#b42318',
+              fontWeight: '600'
+            }}
+          >
+            {message}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Class Attendance</h2>
+
+        {loading || loadingRecords ? (
+          <p>Loading attendance...</p>
+        ) : !students.length ? (
+          <p>No students are assigned to this class yet.</p>
+        ) : (
+          <>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Grade</th>
+                    <th>Status</th>
+                    <th>Present</th>
+                    <th>Absent</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {students.map((student) => {
+                    const isPresent =
+                      attendance[student.id] === true
+
+                    return (
+                      <tr key={student.id}>
+                        <td>
+                          <strong>
+                            {student.first_name}{' '}
+                            {student.last_name}
+                          </strong>
+                        </td>
+
+                        <td>{student.grade || '—'}</td>
+
+                        <td>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '5px 9px',
+                              borderRadius: '999px',
+                              fontWeight: '700',
+                              fontSize: '12px',
+                              background: isPresent
+                                ? '#ecfdf3'
+                                : '#fef3f2',
+                              color: isPresent
+                                ? '#087257'
+                                : '#b42318'
+                            }}
+                          >
+                            {isPresent ? 'Present' : 'Absent'}
+                          </span>
+                        </td>
+
+                        <td>
+                          <input
+                            type="radio"
+                            name={`attendance-${student.id}`}
+                            checked={isPresent}
+                            onChange={() =>
+                              setStudentAttendance(
+                                student.id,
+                                true
+                              )
+                            }
+                            disabled={saving}
+                            style={{
+                              width: '19px',
+                              height: '19px',
+                              cursor: 'pointer'
+                            }}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="radio"
+                            name={`attendance-${student.id}`}
+                            checked={!isPresent}
+                            onChange={() =>
+                              setStudentAttendance(
+                                student.id,
+                                false
+                              )
+                            }
+                            disabled={saving}
+                            style={{
+                              width: '19px',
+                              height: '19px',
+                              cursor: 'pointer'
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '20px'
+              }}
+            >
+              <button
+                className="primary-button small-button"
+                type="button"
+                onClick={saveAttendance}
+                disabled={saving || loadingRecords}
+                style={{ width: 'auto' }}
+              >
+                {saving
+                  ? 'Saving...'
+                  : 'Save Attendance'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
     </>
   )
 }
