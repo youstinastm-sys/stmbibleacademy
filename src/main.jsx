@@ -14014,7 +14014,8 @@ function AdminPointsSystem() {
       daily_reading: 'Daily Reading',
       homework: 'Homework',
       memory_verse: 'Memory Verse',
-      physical_bible: 'Physical Bible'
+      physical_bible: 'Physical Bible',
+      participation: 'Participation'
     }
 
     return labels[category] || category
@@ -14022,11 +14023,18 @@ function AdminPointsSystem() {
 
   function descriptionForCategory(category) {
     const descriptions = {
-      attendance: 'Awarded when a student is marked present for Bible Study.',
-      daily_reading: 'Awarded when a student completes the assigned daily Bible reading.',
-      homework: 'Awarded when a student completes the weekly homework.',
-      memory_verse: 'Awarded when the servant marks the weekly verse as recited.',
-      physical_bible: 'Awarded when the student brings a physical Bible to Bible Study.'
+      attendance:
+        'Awarded when a student is marked present for Bible Study.',
+      daily_reading:
+        'Awarded when a student completes the assigned daily Bible reading.',
+      homework:
+        'Awarded when a student completes the weekly homework.',
+      memory_verse:
+        'Awarded when the servant marks the weekly verse as recited.',
+      physical_bible:
+        'Awarded when the student brings a physical Bible to Bible Study.',
+      participation:
+        'Entered manually by servants for participation, answering questions, helping, or other class engagement.'
     }
 
     return descriptions[category] || 'Bible Study Academy points.'
@@ -14067,7 +14075,17 @@ function AdminPointsSystem() {
     setMessage('')
   }
 
-  const totalPossible = rules.reduce(
+  // Participation is entered manually by servants, so it should
+  // NOT appear with the automatic point rules.
+  const automaticRules = rules.filter(
+    (rule) => rule.category !== 'participation'
+  )
+
+  const participationRule = rules.find(
+    (rule) => rule.category === 'participation'
+  )
+
+  const totalPossible = automaticRules.reduce(
     (sum, rule) => sum + (Number(rule.points) || 0),
     0
   )
@@ -14098,16 +14116,16 @@ function AdminPointsSystem() {
       <div className="stats-grid">
         <StatCard
           icon={<Trophy />}
-          label="Point Categories"
-          value={rules.length}
-          helper="Automatic categories"
+          label="Automatic Categories"
+          value={automaticRules.length}
+          helper="Base point categories"
         />
 
         <StatCard
           icon={<Star />}
           label="Weekly Base Points"
           value={totalPossible}
-          helper="Possible from all categories"
+          helper="Possible from automatic categories"
         />
       </div>
 
@@ -14120,7 +14138,8 @@ function AdminPointsSystem() {
             marginTop: '-8px'
           }}
         >
-          These values are used throughout student progress,
+          These points are awarded from completed Bible Study
+          requirements and are used throughout student progress,
           servant reports, and the admin dashboard.
         </p>
 
@@ -14136,7 +14155,7 @@ function AdminPointsSystem() {
               marginTop: '20px'
             }}
           >
-            {rules.map((rule) => (
+            {automaticRules.map((rule) => (
               <div
                 key={rule.id}
                 style={{
@@ -14232,7 +14251,7 @@ function AdminPointsSystem() {
               </div>
             ))}
 
-            {!rules.length && (
+            {!automaticRules.length && (
               <div
                 style={{
                   border: '1px solid #ececf2',
@@ -14241,7 +14260,7 @@ function AdminPointsSystem() {
                   color: '#6b7280'
                 }}
               >
-                No point rules have been created yet.
+                No automatic point rules have been created yet.
               </div>
             )}
           </div>
@@ -14250,6 +14269,16 @@ function AdminPointsSystem() {
 
       <section className="dashboard-card">
         <h2>Manual Points</h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            marginTop: '-8px'
+          }}
+        >
+          These are entered by servants during Friday Quick Entry
+          rather than awarded automatically.
+        </p>
 
         <div
           style={{
@@ -14268,17 +14297,71 @@ function AdminPointsSystem() {
             }}
           >
             <strong>Participation Points</strong>
+
             <p
               style={{
                 color: '#6b7280',
                 fontSize: '13px',
-                marginBottom: 0
+                marginBottom: participationRule ? '14px' : 0
               }}
             >
-              Servants enter these during Friday Quick Entry for
-              participation, answering questions, helping, or other
-              class engagement.
+              Servants enter these for participation, answering
+              questions, helping, or other class engagement.
             </p>
+
+            {participationRule && (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    value={participationRule.points}
+                    onChange={(event) =>
+                      updateLocalRule(
+                        participationRule.id,
+                        event.target.value
+                      )
+                    }
+                    style={{
+                      width: '110px',
+                      padding: '10px 12px',
+                      border: '1px solid #dfe2ea',
+                      borderRadius: '10px'
+                    }}
+                  />
+
+                  <span
+                    style={{
+                      color: '#6b7280',
+                      fontSize: '13px'
+                    }}
+                  >
+                    suggested points
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  className="primary-button small-button"
+                  disabled={savingId === participationRule.id}
+                  onClick={() => saveRule(participationRule)}
+                  style={{
+                    width: 'auto',
+                    marginTop: '14px'
+                  }}
+                >
+                  {savingId === participationRule.id
+                    ? 'Saving...'
+                    : 'Save'}
+                </button>
+              </>
+            )}
           </div>
 
           <div
@@ -14289,6 +14372,7 @@ function AdminPointsSystem() {
             }}
           >
             <strong>Bonus Points</strong>
+
             <p
               style={{
                 color: '#6b7280',
@@ -14297,8 +14381,8 @@ function AdminPointsSystem() {
               }}
             >
               Servants can award extra points with a reason when
-              appropriate. These are added on top of the automatic
-              point rules.
+              appropriate. Bonus points are added on top of the
+              student's regular and participation points.
             </p>
           </div>
         </div>
