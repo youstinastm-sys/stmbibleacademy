@@ -291,6 +291,10 @@ function DashboardShell({ profile }) {
         return <ServantReports profile={profile} />
       }
 
+      if (activePage === 'Profile') {
+        return <ServantProfile profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2693,6 +2697,382 @@ function ServantReports({ profile }) {
           </section>
         </>
       )}
+    </>
+  )
+}
+
+
+
+function ServantProfile({ profile }) {
+  const [className, setClassName] = useState('Unassigned')
+  const [email, setEmail] = useState('')
+  const [firstName, setFirstName] = useState(
+    profile.first_name || ''
+  )
+  const [lastName, setLastName] = useState(
+    profile.last_name || ''
+  )
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] =
+    useState('')
+  const [loading, setLoading] = useState(true)
+  const [savingProfile, setSavingProfile] =
+    useState(false)
+  const [savingPassword, setSavingPassword] =
+    useState(false)
+  const [profileMessage, setProfileMessage] =
+    useState('')
+  const [passwordMessage, setPasswordMessage] =
+    useState('')
+
+  useEffect(() => {
+    loadProfileDetails()
+  }, [])
+
+  async function loadProfileDetails() {
+    setLoading(true)
+
+    const [
+      userResult,
+      assignmentResult
+    ] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+    ])
+
+    setEmail(userResult.data?.user?.email || '')
+
+    if (assignmentResult.data?.class_id) {
+      const { data: classRecord } = await supabase
+        .from('classes')
+        .select('name')
+        .eq('id', assignmentResult.data.class_id)
+        .single()
+
+      if (classRecord?.name) {
+        setClassName(classRecord.name)
+      }
+    }
+
+    setLoading(false)
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault()
+    setSavingProfile(true)
+    setProfileMessage('')
+
+    if (!firstName.trim() || !lastName.trim()) {
+      setProfileMessage(
+        'First name and last name are required.'
+      )
+      setSavingProfile(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        first_name: firstName.trim(),
+        last_name: lastName.trim()
+      })
+      .eq('id', profile.id)
+
+    if (error) {
+      setProfileMessage(error.message)
+      setSavingProfile(false)
+      return
+    }
+
+    setProfileMessage(
+      'Profile updated successfully. Your sidebar name will refresh the next time you sign in.'
+    )
+    setSavingProfile(false)
+  }
+
+  async function changePassword(event) {
+    event.preventDefault()
+    setSavingPassword(true)
+    setPasswordMessage('')
+
+    if (newPassword.length < 6) {
+      setPasswordMessage(
+        'Your new password must be at least 6 characters.'
+      )
+      setSavingPassword(false)
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('The passwords do not match.')
+      setSavingPassword(false)
+      return
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    })
+
+    if (error) {
+      setPasswordMessage(error.message)
+      setSavingPassword(false)
+      return
+    }
+
+    setNewPassword('')
+    setConfirmPassword('')
+    setPasswordMessage(
+      'Password changed successfully.'
+    )
+    setSavingPassword(false)
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Profile"
+        subtitle="Manage your servant account"
+      />
+
+      <div className="stats-grid">
+        <StatCard
+          icon={<UserRound />}
+          label="Role"
+          value="Servant"
+          helper="Account type"
+        />
+
+        <StatCard
+          icon={<Users />}
+          label="Assigned Class"
+          value={loading ? 'Loading...' : className}
+          helper="Bible Study group"
+        />
+
+        <StatCard
+          icon={<BookOpen />}
+          label="Email"
+          value={loading ? 'Loading...' : email || '—'}
+          helper="Login email"
+        />
+      </div>
+
+      <section
+        className="dashboard-card"
+        style={{ maxWidth: '760px' }}
+      >
+        <h2>Personal Information</h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            marginTop: '-8px',
+            marginBottom: '22px'
+          }}
+        >
+          Update the name shown on your Bible Study Academy account.
+        </p>
+
+        <form onSubmit={saveProfile}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '16px'
+            }}
+          >
+            <div>
+              <label>First Name</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(event) => {
+                  setFirstName(event.target.value)
+                  setProfileMessage('')
+                }}
+                required
+                disabled={savingProfile}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label>Last Name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(event) => {
+                  setLastName(event.target.value)
+                  setProfileMessage('')
+                }}
+                required
+                disabled={savingProfile}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label>Email</label>
+              <input
+                type="email"
+                value={email}
+                disabled
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label>Assigned Class</label>
+              <input
+                type="text"
+                value={className}
+                disabled
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+
+          {profileMessage && (
+            <div
+              style={{
+                marginTop: '18px',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                background: profileMessage.includes(
+                  'successfully'
+                )
+                  ? '#ecfdf3'
+                  : '#fef3f2',
+                color: profileMessage.includes(
+                  'successfully'
+                )
+                  ? '#087257'
+                  : '#b42318',
+                fontWeight: '600'
+              }}
+            >
+              {profileMessage}
+            </div>
+          )}
+
+          <button
+            className="primary-button small-button"
+            type="submit"
+            disabled={savingProfile}
+            style={{
+              width: 'auto',
+              marginTop: '22px'
+            }}
+          >
+            {savingProfile
+              ? 'Saving...'
+              : 'Save Profile'}
+          </button>
+        </form>
+      </section>
+
+      <section
+        className="dashboard-card"
+        style={{ maxWidth: '760px' }}
+      >
+        <h2>Change Password</h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            marginTop: '-8px',
+            marginBottom: '22px'
+          }}
+        >
+          Choose a new password for your account.
+        </p>
+
+        <form onSubmit={changePassword}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '16px'
+            }}
+          >
+            <div>
+              <label>New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => {
+                  setNewPassword(event.target.value)
+                  setPasswordMessage('')
+                }}
+                minLength="6"
+                required
+                disabled={savingPassword}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label>Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value)
+                  setPasswordMessage('')
+                }}
+                minLength="6"
+                required
+                disabled={savingPassword}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+
+          {passwordMessage && (
+            <div
+              style={{
+                marginTop: '18px',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                background: passwordMessage.includes(
+                  'successfully'
+                )
+                  ? '#ecfdf3'
+                  : '#fef3f2',
+                color: passwordMessage.includes(
+                  'successfully'
+                )
+                  ? '#087257'
+                  : '#b42318',
+                fontWeight: '600'
+              }}
+            >
+              {passwordMessage}
+            </div>
+          )}
+
+          <button
+            className="primary-button small-button"
+            type="submit"
+            disabled={savingPassword}
+            style={{
+              width: 'auto',
+              marginTop: '22px'
+            }}
+          >
+            {savingPassword
+              ? 'Changing...'
+              : 'Change Password'}
+          </button>
+        </form>
+      </section>
     </>
   )
 }
