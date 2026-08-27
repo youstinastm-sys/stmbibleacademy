@@ -342,6 +342,10 @@ function DashboardShell({ profile }) {
         return <StudentPhysicalBible profile={profile} />
       }
 
+      if (activePage === 'Attendance') {
+        return <StudentAttendance profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -3619,6 +3623,273 @@ function StudentPhysicalBible({ profile }) {
                     <tr>
                       <td colSpan="2">
                         No physical Bible records yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentAttendance({ profile }) {
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadAttendance()
+  }, [])
+
+  async function loadAttendance() {
+    setLoading(true)
+    setMessage('')
+
+    const { data, error } = await supabase
+      .from('attendance')
+      .select(
+        'id, student_id, class_id, bible_study_date, present, recorded_by, created_at'
+      )
+      .eq('student_id', profile.id)
+      .order('bible_study_date', { ascending: false })
+
+    if (error) {
+      setMessage(error.message)
+      setLoading(false)
+      return
+    }
+
+    setRecords(data || [])
+    setLoading(false)
+  }
+
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
+  const presentCount = records.filter(
+    (record) => record.present === true
+  ).length
+
+  const totalCount = records.length
+  const absentCount = Math.max(0, totalCount - presentCount)
+
+  const percentage = totalCount
+    ? Math.round((presentCount / totalCount) * 100)
+    : 0
+
+  const latestRecord = records[0] || null
+
+  return (
+    <>
+      <DashboardHeader
+        title="Attendance"
+        subtitle="Keep showing up, learning together, and growing in God's Word."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your attendance...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Present"
+              value={presentCount}
+              helper="Bible Study Fridays"
+            />
+
+            <StatCard
+              icon={<BarChart3 />}
+              label="Attendance"
+              value={`${percentage}%`}
+              helper={`${presentCount} of ${totalCount} recorded`}
+            />
+
+            <StatCard
+              icon={<CalendarDays />}
+              label="Latest Friday"
+              value={
+                latestRecord
+                  ? latestRecord.present
+                    ? 'Present ✓'
+                    : 'Absent'
+                  : '—'
+              }
+              helper={
+                latestRecord
+                  ? latestRecord.bible_study_date
+                  : 'No record yet'
+              }
+            />
+
+            <StatCard
+              icon={<Clock />}
+              label="Absences"
+              value={absentCount}
+              helper="Recorded absences"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Latest Bible Study</h2>
+
+            {latestRecord ? (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '22px',
+                  borderRadius: '16px',
+                  border: latestRecord.present
+                    ? '1px solid #b7ead5'
+                    : '1px solid #ececf2',
+                  background: latestRecord.present
+                    ? '#ecfdf3'
+                    : '#fafafa'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '14px',
+                    alignItems: 'center',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '14px',
+                        marginBottom: '5px'
+                      }}
+                    >
+                      {prettyDate(latestRecord.bible_study_date)}
+                    </div>
+
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontSize: '24px'
+                      }}
+                    >
+                      {latestRecord.present
+                        ? '⛪ You Were Here!'
+                        : 'We Missed You!'}
+                    </h3>
+                  </div>
+
+                  <span
+                    style={{
+                      padding: '9px 13px',
+                      borderRadius: '999px',
+                      fontWeight: '800',
+                      background: latestRecord.present
+                        ? 'white'
+                        : '#f2f2f5',
+                      color: latestRecord.present
+                        ? '#087257'
+                        : '#6b7280'
+                    }}
+                  >
+                    {latestRecord.present
+                      ? '✓ Present'
+                      : 'Absent'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '22px',
+                  border: '1px solid #ececf2',
+                  borderRadius: '14px'
+                }}
+              >
+                <strong>No attendance records yet.</strong>
+                <p
+                  style={{
+                    marginBottom: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Your servant will record attendance during Bible
+                  Study.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Attendance History</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bible Study Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {records.map((record) => (
+                    <tr key={record.id}>
+                      <td>{prettyDate(record.bible_study_date)}</td>
+                      <td>
+                        {record.present ? (
+                          <span
+                            style={{
+                              color: '#087257',
+                              fontWeight: '800'
+                            }}
+                          >
+                            ✓ Present
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              color: '#8a8f9c',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Absent
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!records.length && (
+                    <tr>
+                      <td colSpan="2">
+                        No attendance records yet.
                       </td>
                     </tr>
                   )}
