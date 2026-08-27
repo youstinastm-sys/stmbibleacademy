@@ -334,6 +334,10 @@ function DashboardShell({ profile }) {
         return <StudentMemoryVerses profile={profile} />
       }
 
+      if (activePage === 'Achievements') {
+        return <StudentAchievements profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2646,6 +2650,532 @@ function StudentMemoryVerses({ profile }) {
                   )}
                 </tbody>
               </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentAchievements({ profile }) {
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [summary, setSummary] = useState({
+    points: 0,
+    attendanceCount: 0,
+    readingCount: 0,
+    readingStreak: 0,
+    homeworkCount: 0,
+    perfectHomeworkCount: 0,
+    verseCount: 0,
+    bibleCount: 0,
+    participationPoints: 0,
+    bonusPoints: 0
+  })
+
+  useEffect(() => {
+    loadAchievements()
+  }, [])
+
+  function calculateReadingStreak(records) {
+    const completedDates = new Set(
+      records
+        .filter((record) => record.completed === true)
+        .map((record) => record.reading_date)
+    )
+
+    let streak = 0
+    const cursor = new Date()
+    cursor.setHours(12, 0, 0, 0)
+
+    // If today is not completed yet, allow the streak to continue
+    // from yesterday instead of immediately resetting it.
+    const today = cursor.toISOString().slice(0, 10)
+
+    if (!completedDates.has(today)) {
+      cursor.setDate(cursor.getDate() - 1)
+    }
+
+    while (completedDates.has(cursor.toISOString().slice(0, 10))) {
+      streak += 1
+      cursor.setDate(cursor.getDate() - 1)
+    }
+
+    return streak
+  }
+
+  async function loadAchievements() {
+    setLoading(true)
+    setMessage('')
+
+    const studentId = profile.id
+
+    const [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      submissionResult,
+      versesResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('present')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('daily_reading')
+        .select('reading_date, completed')
+        .eq('student_id', studentId)
+        .order('reading_date', { ascending: false }),
+
+      supabase
+        .from('homework')
+        .select('completed')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('homework_submissions')
+        .select('percentage')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('memory_verses')
+        .select('completed')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('physical_bible')
+        .select('brought_bible')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('participation')
+        .select('points')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('bonus_points')
+        .select('points')
+        .eq('student_id', studentId),
+
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const results = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      submissionResult,
+      versesResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ]
+
+    const firstError =
+      results.find((result) => result.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    const attendance = attendanceResult.data || []
+    const reading = readingResult.data || []
+    const homework = homeworkResult.data || []
+    const submissions = submissionResult.data || []
+    const verses = versesResult.data || []
+    const bibles = bibleResult.data || []
+    const participation = participationResult.data || []
+    const bonus = bonusResult.data || []
+
+    const countTrue = (items, field) =>
+      items.filter((item) => item[field] === true).length
+
+    const attendanceCount = countTrue(attendance, 'present')
+    const readingCount = countTrue(reading, 'completed')
+    const homeworkCount = countTrue(homework, 'completed')
+    const verseCount = countTrue(verses, 'completed')
+    const bibleCount = countTrue(bibles, 'brought_bible')
+
+    const perfectHomeworkCount = submissions.filter(
+      (submission) => Number(submission.percentage) >= 100
+    ).length
+
+    const participationPoints = participation.reduce(
+      (sum, record) => sum + (Number(record.points) || 0),
+      0
+    )
+
+    const bonusPoints = bonus.reduce(
+      (sum, record) => sum + (Number(record.points) || 0),
+      0
+    )
+
+    const rules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      rules[rule.category] = Number(rule.points) || 0
+    })
+
+    const points =
+      attendanceCount * (rules.attendance || 0) +
+      readingCount * (rules.daily_reading || 0) +
+      homeworkCount * (rules.homework || 0) +
+      verseCount * (rules.memory_verse || 0) +
+      bibleCount * (rules.physical_bible || 0) +
+      participationPoints +
+      bonusPoints
+
+    setSummary({
+      points,
+      attendanceCount,
+      readingCount,
+      readingStreak: calculateReadingStreak(reading),
+      homeworkCount,
+      perfectHomeworkCount,
+      verseCount,
+      bibleCount,
+      participationPoints,
+      bonusPoints
+    })
+
+    setLoading(false)
+  }
+
+  const achievements = [
+    {
+      id: 'first-reading',
+      emoji: '📖',
+      title: 'First Gem',
+      description: 'Complete your first Daily Reading.',
+      current: summary.readingCount,
+      goal: 1
+    },
+    {
+      id: 'reading-3',
+      emoji: '🔥',
+      title: 'Getting Consistent',
+      description: 'Reach a 3-day Bible reading streak.',
+      current: summary.readingStreak,
+      goal: 3
+    },
+    {
+      id: 'reading-7',
+      emoji: '💎',
+      title: 'Week in the Word',
+      description: 'Reach a 7-day Bible reading streak.',
+      current: summary.readingStreak,
+      goal: 7
+    },
+    {
+      id: 'first-homework',
+      emoji: '✏️',
+      title: 'Homework Hero',
+      description: 'Complete your first homework assignment.',
+      current: summary.homeworkCount,
+      goal: 1
+    },
+    {
+      id: 'perfect-homework',
+      emoji: '🏆',
+      title: 'Perfect Score',
+      description: 'Score 100% on a homework quiz.',
+      current: summary.perfectHomeworkCount,
+      goal: 1
+    },
+    {
+      id: 'verses-3',
+      emoji: '🧠',
+      title: 'Word in My Heart',
+      description: 'Recite 3 memory verses.',
+      current: summary.verseCount,
+      goal: 3
+    },
+    {
+      id: 'attendance-4',
+      emoji: '⛪',
+      title: 'Faithful Friday',
+      description: 'Attend Bible Study 4 times.',
+      current: summary.attendanceCount,
+      goal: 4
+    },
+    {
+      id: 'bible-4',
+      emoji: '📕',
+      title: 'Bible Ready',
+      description: 'Bring your physical Bible 4 times.',
+      current: summary.bibleCount,
+      goal: 4
+    },
+    {
+      id: 'points-50',
+      emoji: '⭐',
+      title: 'Rising Star',
+      description: 'Earn 50 total Bible Study points.',
+      current: summary.points,
+      goal: 50
+    },
+    {
+      id: 'points-100',
+      emoji: '👑',
+      title: 'Century Club',
+      description: 'Earn 100 total Bible Study points.',
+      current: summary.points,
+      goal: 100
+    }
+  ]
+
+  const unlocked = achievements.filter(
+    (achievement) => achievement.current >= achievement.goal
+  )
+
+  const locked = achievements.filter(
+    (achievement) => achievement.current < achievement.goal
+  )
+
+  function AchievementCard({ achievement }) {
+    const earned = achievement.current >= achievement.goal
+    const progress = Math.min(
+      100,
+      Math.round(
+        (achievement.current / achievement.goal) * 100
+      )
+    )
+
+    return (
+      <div
+        style={{
+          border: earned
+            ? '1px solid #cfc0f4'
+            : '1px solid #ececf2',
+          borderRadius: '16px',
+          padding: '18px',
+          background: earned ? '#faf8ff' : '#fff',
+          opacity: earned ? 1 : 0.86
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '12px',
+            alignItems: 'flex-start'
+          }}
+        >
+          <div
+            style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '15px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '28px',
+              background: earned ? '#efe8ff' : '#f4f4f7'
+            }}
+          >
+            {achievement.emoji}
+          </div>
+
+          <span
+            style={{
+              fontSize: '12px',
+              fontWeight: '800',
+              padding: '6px 9px',
+              borderRadius: '999px',
+              color: earned ? '#087257' : '#6b7280',
+              background: earned ? '#ecfdf3' : '#f4f4f7'
+            }}
+          >
+            {earned ? 'UNLOCKED ✓' : 'LOCKED'}
+          </span>
+        </div>
+
+        <h3 style={{ marginBottom: '7px' }}>
+          {achievement.title}
+        </h3>
+
+        <p
+          style={{
+            color: '#6b7280',
+            minHeight: '42px'
+          }}
+        >
+          {achievement.description}
+        </p>
+
+        <div
+          style={{
+            height: '8px',
+            borderRadius: '999px',
+            background: '#ececf2',
+            overflow: 'hidden'
+          }}
+        >
+          <div
+            style={{
+              width: `${progress}%`,
+              height: '100%',
+              background: 'var(--accent)',
+              borderRadius: '999px'
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            marginTop: '8px',
+            fontSize: '13px',
+            color: '#6b7280',
+            display: 'flex',
+            justifyContent: 'space-between'
+          }}
+        >
+          <span>{progress}%</span>
+          <span>
+            {Math.min(achievement.current, achievement.goal)}/
+            {achievement.goal}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Achievements"
+        subtitle="Celebrate the habits you're building as you grow in God's Word."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your achievements...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<Trophy />}
+              label="Unlocked"
+              value={`${unlocked.length}/${achievements.length}`}
+              helper="Achievements earned"
+            />
+
+            <StatCard
+              icon={<Star />}
+              label="Total Points"
+              value={summary.points}
+              helper="Bible Study points"
+            />
+
+            <StatCard
+              icon={<Flame />}
+              label="Reading Streak"
+              value={summary.readingStreak}
+              helper="Current streak"
+            />
+
+            <StatCard
+              icon={<BookOpen />}
+              label="Readings"
+              value={summary.readingCount}
+              helper="Days completed"
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Unlocked Achievements</h2>
+
+            {unlocked.length ? (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '16px',
+                  marginTop: '18px'
+                }}
+              >
+                {unlocked.map((achievement) => (
+                  <AchievementCard
+                    key={achievement.id}
+                    achievement={achievement}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '22px',
+                  border: '1px solid #ececf2',
+                  borderRadius: '14px'
+                }}
+              >
+                <strong>Your first achievement is waiting!</strong>
+                <p
+                  style={{
+                    marginBottom: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Complete your first Daily Reading to unlock
+                  <strong> First Gem</strong>.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Keep Going</h2>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '16px',
+                marginTop: '18px'
+              }}
+            >
+              {locked.map((achievement) => (
+                <AchievementCard
+                  key={achievement.id}
+                  achievement={achievement}
+                />
+              ))}
+
+              {!locked.length && (
+                <div
+                  style={{
+                    padding: '22px',
+                    borderRadius: '14px',
+                    background: '#ecfdf3',
+                    color: '#087257',
+                    fontWeight: '700'
+                  }}
+                >
+                  You unlocked every achievement! 🎉
+                </div>
+              )}
             </div>
           </section>
         </>
