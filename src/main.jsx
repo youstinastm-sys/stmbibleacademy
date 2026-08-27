@@ -1714,11 +1714,19 @@ function StudentDailyReading({ profile }) {
     }
   })
 
+  const gemCount = Object.values(gems).filter(
+    (value) => typeof value === 'string' && value.trim()
+  ).length
+
+  const weekCompleted = lastSevenDays.filter(
+    (day) => day.completed
+  ).length
+
   return (
     <>
       <DashboardHeader
         title="Daily Reading"
-        subtitle="Read God's Word, discover your gems, and keep growing."
+        subtitle="Read God's Word, discover your SPACE PETS gems, and build your streak."
       />
 
       {message && (
@@ -1764,21 +1772,77 @@ function StudentDailyReading({ profile }) {
             />
 
             <StatCard
+              icon={<Star />}
+              label="Gems Today"
+              value={gemCount}
+              helper="SPACE PETS discoveries"
+            />
+
+            <StatCard
               icon={<CheckCircle2 />}
-              label="Today"
-              value={completed ? 'Done ✓' : 'Not Yet'}
-              helper={today}
+              label="Last 7 Days"
+              value={`${weekCompleted}/7`}
+              helper="Reading days completed"
             />
           </div>
 
           <section className="dashboard-card">
-            <h2>Today's Reading</h2>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '14px',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  Today's Reading
+                </h2>
+
+                <p
+                  style={{
+                    color: '#6b7280',
+                    margin: 0
+                  }}
+                >
+                  {new Date(`${today}T12:00:00`).toLocaleDateString(
+                    'en-US',
+                    {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric'
+                    }
+                  )}
+                </p>
+              </div>
+
+              {assignment && (
+                <span
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '999px',
+                    background: completed
+                      ? '#dcfaeb'
+                      : '#f3edff',
+                    color: completed
+                      ? '#087257'
+                      : '#6b35c0',
+                    fontSize: '12px',
+                    fontWeight: '800'
+                  }}
+                >
+                  {completed ? 'COMPLETED ✓' : 'TODAY'}
+                </span>
+              )}
+            </div>
 
             {assignment ? (
               <div
                 style={{
-                  marginTop: '16px',
-                  padding: '20px',
+                  marginTop: '18px',
+                  padding: '22px',
                   borderRadius: '16px',
                   border: '1px solid #e8e3f3',
                   background: '#faf8ff'
@@ -1792,7 +1856,7 @@ function StudentDailyReading({ profile }) {
 
                 <div
                   style={{
-                    fontSize: '22px',
+                    fontSize: '24px',
                     fontWeight: '800',
                     color: '#6b35c0',
                     margin: '8px 0'
@@ -1805,7 +1869,8 @@ function StudentDailyReading({ profile }) {
                   <p
                     style={{
                       color: '#606575',
-                      marginBottom: 0
+                      marginBottom: 0,
+                      lineHeight: 1.55
                     }}
                   >
                     {assignment.notes}
@@ -1815,13 +1880,15 @@ function StudentDailyReading({ profile }) {
             ) : (
               <div
                 style={{
-                  marginTop: '16px',
+                  marginTop: '18px',
                   padding: '20px',
                   borderRadius: '16px',
                   border: '1px solid #ececf2'
                 }}
               >
-                <strong>No reading has been assigned for today.</strong>
+                <strong>
+                  No reading has been assigned for today.
+                </strong>
                 <p
                   style={{
                     color: '#6b7280',
@@ -1833,14 +1900,17 @@ function StudentDailyReading({ profile }) {
               </div>
             )}
 
-            {assignment && (
+            {assignment && !completed && (
               <label
                 style={{
                   display: 'flex',
                   gap: '12px',
                   alignItems: 'center',
                   marginTop: '20px',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  background: '#fafafa'
                 }}
               >
                 <input
@@ -1856,26 +1926,71 @@ function StudentDailyReading({ profile }) {
                     height: '22px'
                   }}
                 />
-                <strong>
-                  I finished today's Bible reading
-                </strong>
+
+                <div>
+                  <strong>
+                    I finished today's Bible reading
+                  </strong>
+                  <div
+                    style={{
+                      color: '#6b7280',
+                      fontSize: '12px',
+                      marginTop: '2px'
+                    }}
+                  >
+                    Check this when you are finished reading.
+                  </div>
+                </div>
               </label>
+            )}
+
+            {completed && (
+              <div
+                style={{
+                  marginTop: '18px',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  background: '#ecfdf3',
+                  color: '#087257',
+                  fontWeight: '700'
+                }}
+              >
+                ✓ Today's reading is complete!
+              </div>
             )}
           </section>
 
           {assignment && (
             <section className="dashboard-card">
-              <h2>SPACE PETS Gems 💎</h2>
-
-              <p
+              <div
                 style={{
-                  color: '#6b7280',
-                  marginTop: '-8px'
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '14px',
+                  alignItems: 'center',
+                  flexWrap: 'wrap'
                 }}
               >
-                You do not have to find every kind of gem every day.
-                Write down the gems you discover while reading.
-              </p>
+                <div>
+                  <h2 style={{ marginBottom: '5px' }}>
+                    SPACE PETS Gems 💎
+                  </h2>
+
+                  <p
+                    style={{
+                      color: '#6b7280',
+                      margin: 0
+                    }}
+                  >
+                    You do not need to find every gem. Record what
+                    stands out to you in today's passage.
+                  </p>
+                </div>
+
+                <strong style={{ color: '#6b35c0' }}>
+                  {gemCount}/9 found
+                </strong>
+              </div>
 
               <div
                 style={{
@@ -1883,14 +1998,19 @@ function StudentDailyReading({ profile }) {
                   gridTemplateColumns:
                     'repeat(auto-fit, minmax(260px, 1fr))',
                   gap: '14px',
-                  marginTop: '18px'
+                  marginTop: '20px'
                 }}
               >
                 {gemFields.map(([field, letter, label]) => (
                   <div
                     key={field}
                     style={{
-                      border: '1px solid #ececf2',
+                      border: gems[field]?.trim()
+                        ? '1px solid #cbb8f2'
+                        : '1px solid #ececf2',
+                      background: gems[field]?.trim()
+                        ? '#fcfaff'
+                        : 'white',
                       borderRadius: '14px',
                       padding: '14px'
                     }}
@@ -1904,8 +2024,8 @@ function StudentDailyReading({ profile }) {
                     >
                       <span
                         style={{
-                          width: '28px',
-                          height: '28px',
+                          width: '30px',
+                          height: '30px',
                           borderRadius: '50%',
                           display: 'inline-flex',
                           justifyContent: 'center',
@@ -1926,7 +2046,7 @@ function StudentDailyReading({ profile }) {
                       onChange={(event) =>
                         updateGem(field, event.target.value)
                       }
-                      placeholder="What did you find?"
+                      placeholder="What did you discover?"
                       disabled={saving || completed}
                       style={{
                         width: '100%',
@@ -1958,57 +2078,72 @@ function StudentDailyReading({ profile }) {
                     : 'Complete Today’s Reading'}
                 </button>
               )}
-
-              {completed && (
-                <div
-                  style={{
-                    marginTop: '20px',
-                    fontWeight: '700',
-                    color: '#087257'
-                  }}
-                >
-                  ✓ Today's reading is complete!
-                </div>
-              )}
             </section>
           )}
 
           <section className="dashboard-card">
-            <h2>Last 7 Days</h2>
+            <h2>My Last 7 Days</h2>
 
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(120px, 1fr))',
+                gap: '10px',
+                marginTop: '18px'
+              }}
+            >
+              {lastSevenDays
+                .slice()
+                .reverse()
+                .map((day) => (
+                  <div
+                    key={day.date}
+                    style={{
+                      textAlign: 'center',
+                      padding: '14px 10px',
+                      borderRadius: '14px',
+                      border: day.completed
+                        ? '1px solid #b7ead5'
+                        : '1px solid #ececf2',
+                      background: day.completed
+                        ? '#f3fcf8'
+                        : 'white'
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '23px',
+                        marginBottom: '6px'
+                      }}
+                    >
+                      {day.completed ? '✓' : '○'}
+                    </div>
 
-                <tbody>
-                  {lastSevenDays.map((day) => (
-                    <tr key={day.date}>
-                      <td>{day.label}</td>
-                      <td>
-                        {day.completed ? (
-                          <span
-                            style={{
-                              color: '#087257',
-                              fontWeight: '700'
-                            }}
-                          >
-                            ✓ Completed
-                          </span>
-                        ) : (
-                          <span style={{ color: '#8a8f9c' }}>
-                            Not completed
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    <strong
+                      style={{
+                        display: 'block',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {day.label}
+                    </strong>
+
+                    <span
+                      style={{
+                        color: day.completed
+                          ? '#087257'
+                          : '#8a8f9c',
+                        fontSize: '11px',
+                        fontWeight: '700'
+                      }}
+                    >
+                      {day.completed
+                        ? 'Completed'
+                        : 'Not completed'}
+                    </span>
+                  </div>
+                ))}
             </div>
           </section>
         </>
@@ -2016,8 +2151,6 @@ function StudentDailyReading({ profile }) {
     </>
   )
 }
-
-
 
 function StudentHomework({ profile }) {
   const [classId, setClassId] = useState(null)
