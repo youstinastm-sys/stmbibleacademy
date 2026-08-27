@@ -2346,23 +2346,33 @@ function ServantDailyReadings({ profile }) {
 function ServantWeeklyAssignments({ profile }) {
   const today = new Date().toISOString().slice(0, 10)
 
+  const emptyQuestion = () => ({
+    question_text: '',
+    choice_a: '',
+    choice_b: '',
+    choice_c: '',
+    choice_d: '',
+    correct_answer: 'A'
+  })
+
   const [classId, setClassId] = useState(null)
   const [className, setClassName] = useState('My Bible Study Class')
   const [weekDate, setWeekDate] = useState(today)
 
-  const [homeworkTitle, setHomeworkTitle] = useState('')
-  const [homeworkInstructions, setHomeworkInstructions] = useState('')
-  const [homeworkDueDate, setHomeworkDueDate] = useState('')
+  const [quizTitle, setQuizTitle] = useState('')
+  const [quizDueDate, setQuizDueDate] = useState('')
+  const [questions, setQuestions] = useState([emptyQuestion()])
+  const [editingQuizId, setEditingQuizId] = useState(null)
 
   const [verseReference, setVerseReference] = useState('')
   const [verseText, setVerseText] = useState('')
   const [verseNotes, setVerseNotes] = useState('')
 
-  const [homeworkAssignments, setHomeworkAssignments] = useState([])
+  const [quizAssignments, setQuizAssignments] = useState([])
   const [memoryAssignments, setMemoryAssignments] = useState([])
 
   const [loading, setLoading] = useState(true)
-  const [savingHomework, setSavingHomework] = useState(false)
+  const [savingQuiz, setSavingQuiz] = useState(false)
   const [savingVerse, setSavingVerse] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -2420,11 +2430,11 @@ function ServantWeeklyAssignments({ profile }) {
   }
 
   async function loadAssignments() {
-    const [homeworkResult, memoryResult] = await Promise.all([
+    const [quizResult, memoryResult] = await Promise.all([
       supabase
-        .from('homework_assignments')
+        .from('homework_quizzes')
         .select(
-          'id, class_id, bible_study_date, title, instructions, due_date, created_by, created_at'
+          'id, class_id, bible_study_date, title, due_date, created_by, created_at'
         )
         .eq('class_id', classId)
         .order('bible_study_date', { ascending: false }),
@@ -2438,64 +2448,219 @@ function ServantWeeklyAssignments({ profile }) {
         .order('bible_study_date', { ascending: false })
     ])
 
-    if (homeworkResult.error || memoryResult.error) {
+    if (quizResult.error || memoryResult.error) {
       setMessage(
-        homeworkResult.error?.message ||
+        quizResult.error?.message ||
         memoryResult.error?.message
       )
       return
     }
 
-    setHomeworkAssignments(homeworkResult.data || [])
+    setQuizAssignments(quizResult.data || [])
     setMemoryAssignments(memoryResult.data || [])
   }
 
-  async function saveHomework(event) {
+  function updateQuestion(index, field, value) {
+    setQuestions((current) =>
+      current.map((question, questionIndex) =>
+        questionIndex === index
+          ? { ...question, [field]: value }
+          : question
+      )
+    )
+    setMessage('')
+  }
+
+  function addQuestion() {
+    setQuestions((current) => [
+      ...current,
+      emptyQuestion()
+    ])
+  }
+
+  function removeQuestion(index) {
+    setQuestions((current) => {
+      if (current.length === 1) return current
+      return current.filter((_, i) => i !== index)
+    })
+  }
+
+  function resetQuizForm() {
+    setQuizTitle('')
+    setQuizDueDate('')
+    setQuestions([emptyQuestion()])
+    setEditingQuizId(null)
+  }
+
+  async function saveQuiz(event) {
     event.preventDefault()
-    setSavingHomework(true)
+    setSavingQuiz(true)
     setMessage('')
 
-    if (!weekDate || !homeworkTitle.trim()) {
-      setMessage('Choose the Bible Study date and enter a homework title.')
-      setSavingHomework(false)
+    if (!weekDate || !quizTitle.trim()) {
+      setMessage('Choose the Bible Study date and enter a quiz title.')
+      setSavingQuiz(false)
       return
     }
 
-    const { error: deleteError } = await supabase
-      .from('homework_assignments')
+    const incompleteQuestion = questions.find((question) =>
+      !question.question_text.trim() ||
+      !question.choice_a.trim() ||
+      !question.choice_b.trim() ||
+      !question.choice_c.trim() ||
+      !question.choice_d.trim()
+    )
+
+    if (incompleteQuestion) {
+      setMessage(
+        'Every quiz question needs the question, all 4 answer choices, and a correct answer.'
+      )
+      setSavingQuiz(false)
+      return
+    }
+
+    try {
+      let quizId = editingQuizId
+
+      if (!quizId) {
+        const { data: existingQuiz } = await supabase
+          .from('homework_quizzes')
+          .select('id')
+          .eq('class_id', classId)
+          .eq('bible_study_date', weekDate)
+          .maybeSingle()
+
+        quizId = existingQuiz?.id || null
+      }
+
+      if (quizId) {
+        const { error: updateError } = await supabase
+          .from('homework_quizzes')
+          .update({
+            bible_study_date: weekDate,
+            title: quizTitle.trim(),
+            due_date: quizDueDate || null
+          })
+          .eq('id', quizId)
+          .eq('class_id', classId)
+
+        if (updateError) throw updateError
+
+        const { error: deleteQuestionsError } = await supabase
+          .from('homework_questions')
+          .delete()
+          .eq('quiz_id', quizId)
+
+        if (deleteQuestionsError) throw deleteQuestionsError
+      } else {
+        const { data: quizData, error: quizError } = await supabase
+          .from('homework_quizzes')
+          .insert({
+            class_id: classId,
+            bible_study_date: weekDate,
+            title: quizTitle.trim(),
+            due_date: quizDueDate || null,
+            created_by: profile.id
+          })
+          .select('id')
+          .single()
+
+        if (quizError) throw quizError
+        quizId = quizData.id
+      }
+
+      const questionRows = questions.map((question, index) => ({
+        quiz_id: quizId,
+        question_order: index + 1,
+        question_text: question.question_text.trim(),
+        choice_a: question.choice_a.trim(),
+        choice_b: question.choice_b.trim(),
+        choice_c: question.choice_c.trim(),
+        choice_d: question.choice_d.trim(),
+        correct_answer: question.correct_answer
+      }))
+
+      const { error: questionError } = await supabase
+        .from('homework_questions')
+        .insert(questionRows)
+
+      if (questionError) throw questionError
+
+      setMessage('Homework quiz saved successfully.')
+      resetQuizForm()
+      await loadAssignments()
+    } catch (error) {
+      console.error('Homework quiz save error:', error)
+      setMessage(
+        error?.message || 'Could not save the homework quiz.'
+      )
+    }
+
+    setSavingQuiz(false)
+  }
+
+  async function editQuiz(quiz) {
+    setMessage('')
+
+    const { data: quizQuestions, error } = await supabase
+      .from('homework_questions')
+      .select(
+        'id, question_order, question_text, choice_a, choice_b, choice_c, choice_d, correct_answer'
+      )
+      .eq('quiz_id', quiz.id)
+      .order('question_order', { ascending: true })
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setEditingQuizId(quiz.id)
+    setWeekDate(quiz.bible_study_date)
+    setQuizTitle(quiz.title || '')
+    setQuizDueDate(quiz.due_date || '')
+    setQuestions(
+      (quizQuestions || []).map((question) => ({
+        question_text: question.question_text || '',
+        choice_a: question.choice_a || '',
+        choice_b: question.choice_b || '',
+        choice_c: question.choice_c || '',
+        choice_d: question.choice_d || '',
+        correct_answer: question.correct_answer || 'A'
+      }))
+    )
+
+    if (!(quizQuestions || []).length) {
+      setQuestions([emptyQuestion()])
+    }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function deleteQuiz(id) {
+    const confirmed = window.confirm(
+      'Delete this homework quiz and all of its questions?'
+    )
+
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('homework_quizzes')
       .delete()
+      .eq('id', id)
       .eq('class_id', classId)
-      .eq('bible_study_date', weekDate)
 
-    if (deleteError) {
-      setMessage(deleteError.message)
-      setSavingHomework(false)
+    if (error) {
+      setMessage(error.message)
       return
     }
 
-    const { error: insertError } = await supabase
-      .from('homework_assignments')
-      .insert({
-        class_id: classId,
-        bible_study_date: weekDate,
-        title: homeworkTitle.trim(),
-        instructions: homeworkInstructions.trim() || null,
-        due_date: homeworkDueDate || null,
-        created_by: profile.id
-      })
-
-    if (insertError) {
-      setMessage(insertError.message)
-      setSavingHomework(false)
-      return
+    if (editingQuizId === id) {
+      resetQuizForm()
     }
 
-    setHomeworkTitle('')
-    setHomeworkInstructions('')
-    setHomeworkDueDate('')
-    setMessage('Homework assigned successfully.')
+    setMessage('Homework quiz deleted.')
     await loadAssignments()
-    setSavingHomework(false)
   }
 
   async function saveMemoryVerse(event) {
@@ -2548,15 +2713,6 @@ function ServantWeeklyAssignments({ profile }) {
     setSavingVerse(false)
   }
 
-  function editHomework(item) {
-    setWeekDate(item.bible_study_date)
-    setHomeworkTitle(item.title || '')
-    setHomeworkInstructions(item.instructions || '')
-    setHomeworkDueDate(item.due_date || '')
-    setMessage('')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
   function editMemoryVerse(item) {
     setWeekDate(item.bible_study_date)
     setVerseReference(item.verse_reference || '')
@@ -2566,27 +2722,10 @@ function ServantWeeklyAssignments({ profile }) {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function deleteHomework(id) {
-    const confirmed = window.confirm('Delete this homework assignment?')
-    if (!confirmed) return
-
-    const { error } = await supabase
-      .from('homework_assignments')
-      .delete()
-      .eq('id', id)
-      .eq('class_id', classId)
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    setMessage('Homework assignment deleted.')
-    await loadAssignments()
-  }
-
   async function deleteMemoryVerse(id) {
-    const confirmed = window.confirm('Delete this memory verse assignment?')
+    const confirmed = window.confirm(
+      'Delete this memory verse assignment?'
+    )
     if (!confirmed) return
 
     const { error } = await supabase
@@ -2608,7 +2747,7 @@ function ServantWeeklyAssignments({ profile }) {
     <>
       <DashboardHeader
         title="Weekly Assignments"
-        subtitle={`${className} • Assign homework and the memory verse for each Bible Study week`}
+        subtitle={`${className} • Create the weekly homework quiz and memory verse`}
       />
 
       {message && (
@@ -2636,7 +2775,10 @@ function ServantWeeklyAssignments({ profile }) {
         </section>
       ) : (
         <>
-          <section className="dashboard-card" style={{ marginTop: '24px' }}>
+          <section
+            className="dashboard-card"
+            style={{ marginTop: '24px' }}
+          >
             <h2>Week</h2>
 
             <div style={{ maxWidth: '260px' }}>
@@ -2644,35 +2786,77 @@ function ServantWeeklyAssignments({ profile }) {
               <input
                 type="date"
                 value={weekDate}
-                onChange={(event) => setWeekDate(event.target.value)}
+                onChange={(event) =>
+                  setWeekDate(event.target.value)
+                }
                 style={{ width: '100%' }}
               />
             </div>
           </section>
 
           <section className="dashboard-card">
-            <h2>Assign Homework</h2>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '4px' }}>
+                  Homework Quiz
+                </h2>
+                <p
+                  style={{
+                    color: '#6b7280',
+                    margin: 0
+                  }}
+                >
+                  Create multiple-choice questions with one correct answer.
+                </p>
+              </div>
 
-            <form onSubmit={saveHomework}>
+              {editingQuizId && (
+                <button
+                  type="button"
+                  onClick={resetQuizForm}
+                  style={{
+                    border: '1px solid #dfe2ea',
+                    background: 'white',
+                    padding: '9px 12px',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    fontWeight: '700'
+                  }}
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={saveQuiz}>
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns:
                     'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: '16px'
+                  gap: '16px',
+                  marginTop: '20px'
                 }}
               >
                 <div>
-                  <label>Homework Title</label>
+                  <label>Quiz Title</label>
                   <input
                     type="text"
-                    value={homeworkTitle}
+                    value={quizTitle}
                     onChange={(event) =>
-                      setHomeworkTitle(event.target.value)
+                      setQuizTitle(event.target.value)
                     }
-                    placeholder="Example: Finish SPACE PETS Gems"
+                    placeholder="Example: Week 1 — Creation"
                     required
-                    disabled={savingHomework}
+                    disabled={savingQuiz}
                     style={{ width: '100%' }}
                   />
                 </div>
@@ -2681,45 +2865,182 @@ function ServantWeeklyAssignments({ profile }) {
                   <label>Due Date</label>
                   <input
                     type="date"
-                    value={homeworkDueDate}
+                    value={quizDueDate}
                     onChange={(event) =>
-                      setHomeworkDueDate(event.target.value)
+                      setQuizDueDate(event.target.value)
                     }
-                    disabled={savingHomework}
+                    disabled={savingQuiz}
                     style={{ width: '100%' }}
-                  />
-                </div>
-
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <label>Instructions</label>
-                  <textarea
-                    value={homeworkInstructions}
-                    onChange={(event) =>
-                      setHomeworkInstructions(event.target.value)
-                    }
-                    placeholder="What should the students complete before Friday?"
-                    rows="4"
-                    disabled={savingHomework}
-                    style={{
-                      width: '100%',
-                      resize: 'vertical',
-                      padding: '10px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #dfe2ea',
-                      font: 'inherit'
-                    }}
                   />
                 </div>
               </div>
 
-              <button
-                className="primary-button small-button"
-                type="submit"
-                disabled={savingHomework || !classId}
-                style={{ width: 'auto', marginTop: '20px' }}
+              <div style={{ marginTop: '24px' }}>
+                {questions.map((question, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      border: '1px solid #e7e7ef',
+                      borderRadius: '16px',
+                      padding: '18px',
+                      marginBottom: '16px'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        alignItems: 'center',
+                        marginBottom: '14px'
+                      }}
+                    >
+                      <strong>Question {index + 1}</strong>
+
+                      {questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeQuestion(index)}
+                          disabled={savingQuiz}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#b42318',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <label>Question</label>
+                      <textarea
+                        value={question.question_text}
+                        onChange={(event) =>
+                          updateQuestion(
+                            index,
+                            'question_text',
+                            event.target.value
+                          )
+                        }
+                        rows="3"
+                        required
+                        disabled={savingQuiz}
+                        placeholder="Type the question..."
+                        style={{
+                          width: '100%',
+                          resize: 'vertical',
+                          padding: '10px 12px',
+                          borderRadius: '10px',
+                          border: '1px solid #dfe2ea',
+                          font: 'inherit'
+                        }}
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(220px, 1fr))',
+                        gap: '12px',
+                        marginTop: '14px'
+                      }}
+                    >
+                      {[
+                        ['choice_a', 'A'],
+                        ['choice_b', 'B'],
+                        ['choice_c', 'C'],
+                        ['choice_d', 'D']
+                      ].map(([field, letter]) => (
+                        <div key={field}>
+                          <label>Choice {letter}</label>
+                          <input
+                            type="text"
+                            value={question[field]}
+                            onChange={(event) =>
+                              updateQuestion(
+                                index,
+                                field,
+                                event.target.value
+                              )
+                            }
+                            required
+                            disabled={savingQuiz}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div
+                      style={{
+                        maxWidth: '260px',
+                        marginTop: '14px'
+                      }}
+                    >
+                      <label>Correct Answer</label>
+                      <select
+                        value={question.correct_answer}
+                        onChange={(event) =>
+                          updateQuestion(
+                            index,
+                            'correct_answer',
+                            event.target.value
+                          )
+                        }
+                        disabled={savingQuiz}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  flexWrap: 'wrap'
+                }}
               >
-                {savingHomework ? 'Saving...' : 'Assign Homework'}
-              </button>
+                <button
+                  type="button"
+                  onClick={addQuestion}
+                  disabled={savingQuiz}
+                  style={{
+                    border: '1px solid #dfe2ea',
+                    background: 'white',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    fontWeight: '700'
+                  }}
+                >
+                  + Add Question
+                </button>
+
+                <button
+                  className="primary-button small-button"
+                  type="submit"
+                  disabled={savingQuiz || !classId}
+                  style={{ width: 'auto' }}
+                >
+                  {savingQuiz
+                    ? 'Saving...'
+                    : editingQuizId
+                      ? 'Save Quiz Changes'
+                      : 'Assign Homework Quiz'}
+                </button>
+              </div>
             </form>
           </section>
 
@@ -2805,38 +3126,27 @@ function ServantWeeklyAssignments({ profile }) {
           </section>
 
           <section className="dashboard-card">
-            <h2>Homework History</h2>
+            <h2>Homework Quiz History</h2>
 
             <div className="table-wrapper">
               <table>
                 <thead>
                   <tr>
                     <th>Bible Study Date</th>
-                    <th>Homework</th>
+                    <th>Quiz</th>
                     <th>Due</th>
                     <th></th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {homeworkAssignments.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.bible_study_date}</td>
+                  {quizAssignments.map((quiz) => (
+                    <tr key={quiz.id}>
+                      <td>{quiz.bible_study_date}</td>
                       <td>
-                        <strong>{item.title}</strong>
-                        {item.instructions && (
-                          <div
-                            style={{
-                              color: '#6b7280',
-                              fontSize: '12px',
-                              marginTop: '4px'
-                            }}
-                          >
-                            {item.instructions}
-                          </div>
-                        )}
+                        <strong>{quiz.title}</strong>
                       </td>
-                      <td>{item.due_date || '—'}</td>
+                      <td>{quiz.due_date || '—'}</td>
                       <td>
                         <div
                           style={{
@@ -2847,7 +3157,7 @@ function ServantWeeklyAssignments({ profile }) {
                         >
                           <button
                             type="button"
-                            onClick={() => editHomework(item)}
+                            onClick={() => editQuiz(quiz)}
                             style={{
                               border: 'none',
                               background: 'transparent',
@@ -2861,7 +3171,7 @@ function ServantWeeklyAssignments({ profile }) {
 
                           <button
                             type="button"
-                            onClick={() => deleteHomework(item.id)}
+                            onClick={() => deleteQuiz(quiz.id)}
                             style={{
                               border: 'none',
                               background: 'transparent',
@@ -2877,10 +3187,10 @@ function ServantWeeklyAssignments({ profile }) {
                     </tr>
                   ))}
 
-                  {!homeworkAssignments.length && (
+                  {!quizAssignments.length && (
                     <tr>
                       <td colSpan="4">
-                        No homework assignments yet.
+                        No homework quizzes yet.
                       </td>
                     </tr>
                   )}
@@ -2935,7 +3245,9 @@ function ServantWeeklyAssignments({ profile }) {
 
                           <button
                             type="button"
-                            onClick={() => deleteMemoryVerse(item.id)}
+                            onClick={() =>
+                              deleteMemoryVerse(item.id)
+                            }
                             style={{
                               border: 'none',
                               background: 'transparent',
