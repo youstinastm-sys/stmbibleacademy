@@ -3248,6 +3248,14 @@ function StudentMemoryVerses({ profile }) {
     isCompleted(item.bible_study_date)
   ).length
 
+  const recitedPercent = assignments.length
+    ? Math.round((completedCount / assignments.length) * 100)
+    : 0
+
+  const currentCompleted =
+    currentAssignment &&
+    isCompleted(currentAssignment.bible_study_date)
+
   return (
     <>
       <DashboardHeader
@@ -3279,17 +3287,25 @@ function StudentMemoryVerses({ profile }) {
               icon={<CheckCircle2 />}
               label="Recited"
               value={completedCount}
-              helper="Marked by your servant"
+              helper="Marked complete by your servant"
+            />
+
+            <StatCard
+              icon={<BarChart3 />}
+              label="Completion"
+              value={`${recitedPercent}%`}
+              helper="Of assigned verses"
             />
 
             <StatCard
               icon={<Star />}
-              label="Current Status"
+              label="Current Verse"
               value={
-                currentAssignment &&
-                isCompleted(currentAssignment.bible_study_date)
-                  ? 'Recited ✓'
-                  : 'Not Yet'
+                currentAssignment
+                  ? currentCompleted
+                    ? 'Recited ✓'
+                    : 'To Learn'
+                  : '—'
               }
               helper={
                 currentAssignment
@@ -3300,12 +3316,51 @@ function StudentMemoryVerses({ profile }) {
           </div>
 
           <section className="dashboard-card">
-            <h2>This Week's Memory Verse</h2>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '14px',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  This Week's Memory Verse
+                </h2>
+                <p style={{ margin: 0, color: '#6b7280' }}>
+                  Practice it during the week, then recite it to your
+                  servant on Friday.
+                </p>
+              </div>
+
+              {currentAssignment && (
+                <span
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '999px',
+                    fontWeight: '800',
+                    fontSize: '11px',
+                    background: currentCompleted
+                      ? '#dcfaeb'
+                      : '#fff7e6',
+                    color: currentCompleted
+                      ? '#087257'
+                      : '#8a5a00'
+                  }}
+                >
+                  {currentCompleted
+                    ? 'RECITED ✓'
+                    : 'PRACTICE THIS WEEK'}
+                </span>
+              )}
+            </div>
 
             {currentAssignment ? (
               <div
                 style={{
-                  marginTop: '16px',
+                  marginTop: '18px',
                   padding: '24px',
                   borderRadius: '18px',
                   border: '1px solid #e8e3f3',
@@ -3314,87 +3369,49 @@ function StudentMemoryVerses({ profile }) {
               >
                 <div
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    gap: '16px',
-                    flexWrap: 'wrap'
+                    color: '#6b35c0',
+                    fontWeight: '800',
+                    fontSize: '13px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em'
                   }}
                 >
-                  <div>
-                    <div
-                      style={{
-                        color: '#6b35c0',
-                        fontWeight: '800',
-                        fontSize: '14px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em'
-                      }}
-                    >
-                      {prettyDate(
-                        currentAssignment.bible_study_date
-                      )}
-                    </div>
-
-                    <h2
-                      style={{
-                        margin: '8px 0 0',
-                        fontSize: '28px'
-                      }}
-                    >
-                      {currentAssignment.verse_reference}
-                    </h2>
-                  </div>
-
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '7px',
-                      padding: '9px 13px',
-                      borderRadius: '999px',
-                      fontWeight: '800',
-                      background: isCompleted(
-                        currentAssignment.bible_study_date
-                      )
-                        ? '#ecfdf3'
-                        : '#fff7e6',
-                      color: isCompleted(
-                        currentAssignment.bible_study_date
-                      )
-                        ? '#087257'
-                        : '#8a5a00'
-                    }}
-                  >
-                    {isCompleted(
-                      currentAssignment.bible_study_date
-                    )
-                      ? '✓ Recited'
-                      : 'Not Recited Yet'}
-                  </span>
+                  For{' '}
+                  {prettyDate(
+                    currentAssignment.bible_study_date
+                  )}
                 </div>
 
+                <h2
+                  style={{
+                    margin: '8px 0 0',
+                    fontSize: '29px'
+                  }}
+                >
+                  {currentAssignment.verse_reference}
+                </h2>
+
                 {currentAssignment.verse_text && (
-                  <blockquote
+                  <div
                     style={{
-                      margin: '24px 0 0',
-                      padding: '18px 20px',
-                      borderLeft: '4px solid #6b35c0',
+                      marginTop: '22px',
+                      padding: '20px',
                       background: 'white',
-                      borderRadius: '0 14px 14px 0',
+                      borderRadius: '14px',
+                      borderLeft: '4px solid #6b35c0',
                       fontSize: '20px',
-                      lineHeight: 1.6,
+                      lineHeight: 1.65,
                       color: '#242938'
                     }}
                   >
                     “{currentAssignment.verse_text}”
-                  </blockquote>
+                  </div>
                 )}
 
                 {currentAssignment.notes && (
                   <div
                     style={{
-                      marginTop: '18px',
+                      marginTop: '16px',
                       padding: '14px 16px',
                       borderRadius: '12px',
                       background: 'white',
@@ -3405,7 +3422,8 @@ function StudentMemoryVerses({ profile }) {
                     <p
                       style={{
                         marginBottom: 0,
-                        color: '#606575'
+                        color: '#606575',
+                        lineHeight: 1.5
                       }}
                     >
                       {currentAssignment.notes}
@@ -3413,46 +3431,133 @@ function StudentMemoryVerses({ profile }) {
                   </div>
                 )}
 
-                {!isCompleted(
-                  currentAssignment.bible_study_date
-                ) && (
-                  <p
+                {currentCompleted ? (
+                  <div
                     style={{
                       marginTop: '18px',
-                      marginBottom: 0,
-                      color: '#6b7280',
-                      fontSize: '14px'
+                      padding: '14px',
+                      borderRadius: '12px',
+                      background: '#ecfdf3',
+                      color: '#087257',
+                      fontWeight: '700'
                     }}
                   >
-                    When you recite this verse to your servant,
-                    they will mark it complete for you.
-                  </p>
+                    ✓ Your servant marked this verse as recited.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      marginTop: '18px',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      background: '#fffaf0',
+                      border: '1px solid #f1dfb8',
+                      color: '#6b5a2d'
+                    }}
+                  >
+                    <strong>Ready to complete it?</strong>
+                    <div
+                      style={{
+                        marginTop: '4px',
+                        fontSize: '13px'
+                      }}
+                    >
+                      Recite the verse to your servant. They will mark
+                      it complete for you.
+                    </div>
+                  </div>
                 )}
               </div>
             ) : (
               <div
                 style={{
-                  marginTop: '16px',
-                  padding: '20px',
-                  borderRadius: '14px',
-                  border: '1px solid #ececf2'
+                  marginTop: '18px',
+                  padding: '24px',
+                  borderRadius: '16px',
+                  border: '1px solid #ececf2',
+                  textAlign: 'center'
                 }}
               >
-                <strong>
-                  No memory verse has been assigned yet.
-                </strong>
+                <div style={{ fontSize: '34px' }}>🧠</div>
+                <h3>No memory verse assigned yet</h3>
                 <p
                   style={{
-                    marginBottom: 0,
-                    color: '#6b7280'
+                    color: '#6b7280',
+                    marginBottom: 0
                   }}
                 >
-                  Check back after your servant assigns this week's
-                  verse.
+                  Your next verse will appear here after your servant
+                  assigns it.
                 </p>
               </div>
             )}
           </section>
+
+          {currentAssignment && !currentCompleted && (
+            <section className="dashboard-card">
+              <h2>How to Practice</h2>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(210px, 1fr))',
+                  gap: '12px',
+                  marginTop: '18px'
+                }}
+              >
+                {[
+                  ['1', 'Read It', 'Read the whole verse slowly 3 times.'],
+                  ['2', 'Break It Up', 'Learn one short phrase at a time.'],
+                  ['3', 'Say It Without Looking', 'Cover the verse and try it from memory.'],
+                  ['4', 'Practice Again Tomorrow', 'A little practice each day works better than cramming.']
+                ].map(([number, title, text]) => (
+                  <div
+                    key={number}
+                    style={{
+                      border: '1px solid #ececf2',
+                      borderRadius: '14px',
+                      padding: '16px'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '30px',
+                        height: '30px',
+                        borderRadius: '50%',
+                        background: '#f3edff',
+                        color: '#6b35c0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: '800'
+                      }}
+                    >
+                      {number}
+                    </div>
+                    <strong
+                      style={{
+                        display: 'block',
+                        marginTop: '10px'
+                      }}
+                    >
+                      {title}
+                    </strong>
+                    <p
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '13px',
+                        lineHeight: 1.45,
+                        marginBottom: 0
+                      }}
+                    >
+                      {text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="dashboard-card">
             <h2>Previous Memory Verses</h2>
@@ -3479,9 +3584,10 @@ function StudentMemoryVerses({ profile }) {
                           <div
                             style={{
                               color: '#6b7280',
-                              fontSize: '14px',
+                              fontSize: '13px',
                               marginTop: '4px',
-                              maxWidth: '620px'
+                              maxWidth: '620px',
+                              lineHeight: 1.45
                             }}
                           >
                             {item.verse_text}
@@ -3529,7 +3635,6 @@ function StudentMemoryVerses({ profile }) {
     </>
   )
 }
-
 
 
 function StudentAchievements({ profile }) {
