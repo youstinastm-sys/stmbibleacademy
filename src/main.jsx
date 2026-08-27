@@ -330,6 +330,10 @@ function DashboardShell({ profile }) {
         return <StudentHomework profile={profile} />
       }
 
+      if (activePage === 'Memory Verses') {
+        return <StudentMemoryVerses profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -2238,6 +2242,413 @@ function StudentHomework({ profile }) {
             </table>
           </div>
         </section>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentMemoryVerses({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
+  const [assignments, setAssignments] = useState([])
+  const [completionRecords, setCompletionRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadMemoryVerses()
+  }, [])
+
+  async function loadMemoryVerses() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: membership, error: membershipError } =
+      await supabase
+        .from('class_members')
+        .select('class_id')
+        .eq('student_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (membershipError) {
+      setMessage(membershipError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!membership) {
+      setMessage('You are not assigned to a Bible Study class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(membership.class_id)
+
+    const [assignmentResult, completionResult] = await Promise.all([
+      supabase
+        .from('memory_verse_assignments')
+        .select(
+          'id, class_id, bible_study_date, verse_reference, verse_text, notes, created_at'
+        )
+        .eq('class_id', membership.class_id)
+        .order('bible_study_date', { ascending: true }),
+
+      supabase
+        .from('memory_verses')
+        .select(
+          'id, student_id, class_id, bible_study_date, completed, recorded_by'
+        )
+        .eq('student_id', profile.id)
+        .eq('class_id', membership.class_id)
+        .order('bible_study_date', { ascending: false })
+    ])
+
+    if (assignmentResult.error || completionResult.error) {
+      setMessage(
+        assignmentResult.error?.message ||
+        completionResult.error?.message
+      )
+      setLoading(false)
+      return
+    }
+
+    setAssignments(assignmentResult.data || [])
+    setCompletionRecords(completionResult.data || [])
+    setLoading(false)
+  }
+
+  function isCompleted(date) {
+    return completionRecords.some(
+      (record) =>
+        record.bible_study_date === date &&
+        record.completed === true
+    )
+  }
+
+  function prettyDate(dateString) {
+    if (!dateString) return ''
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
+  const upcomingAssignments = assignments
+    .filter((item) => item.bible_study_date >= today)
+    .sort((a, b) =>
+      a.bible_study_date.localeCompare(b.bible_study_date)
+    )
+
+  const pastAssignments = assignments
+    .filter((item) => item.bible_study_date < today)
+    .sort((a, b) =>
+      b.bible_study_date.localeCompare(a.bible_study_date)
+    )
+
+  const currentAssignment =
+    upcomingAssignments[0] || pastAssignments[0] || null
+
+  const history = assignments
+    .filter(
+      (item) =>
+        !currentAssignment ||
+        item.id !== currentAssignment.id
+    )
+    .sort((a, b) =>
+      b.bible_study_date.localeCompare(a.bible_study_date)
+    )
+
+  const completedCount = assignments.filter((item) =>
+    isCompleted(item.bible_study_date)
+  ).length
+
+  return (
+    <>
+      <DashboardHeader
+        title="Memory Verses"
+        subtitle="Hide God's Word in your heart, one verse at a time."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading memory verses...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<GraduationCap />}
+              label="Verses Assigned"
+              value={assignments.length}
+              helper="Total verses"
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Recited"
+              value={completedCount}
+              helper="Marked by your servant"
+            />
+
+            <StatCard
+              icon={<Star />}
+              label="Current Status"
+              value={
+                currentAssignment &&
+                isCompleted(currentAssignment.bible_study_date)
+                  ? 'Recited ✓'
+                  : 'Not Yet'
+              }
+              helper={
+                currentAssignment
+                  ? currentAssignment.verse_reference
+                  : 'No verse assigned'
+              }
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>This Week's Memory Verse</h2>
+
+            {currentAssignment ? (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '24px',
+                  borderRadius: '18px',
+                  border: '1px solid #e8e3f3',
+                  background: '#faf8ff'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: '16px',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        color: '#6b35c0',
+                        fontWeight: '800',
+                        fontSize: '14px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em'
+                      }}
+                    >
+                      {prettyDate(
+                        currentAssignment.bible_study_date
+                      )}
+                    </div>
+
+                    <h2
+                      style={{
+                        margin: '8px 0 0',
+                        fontSize: '28px'
+                      }}
+                    >
+                      {currentAssignment.verse_reference}
+                    </h2>
+                  </div>
+
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      padding: '9px 13px',
+                      borderRadius: '999px',
+                      fontWeight: '800',
+                      background: isCompleted(
+                        currentAssignment.bible_study_date
+                      )
+                        ? '#ecfdf3'
+                        : '#fff7e6',
+                      color: isCompleted(
+                        currentAssignment.bible_study_date
+                      )
+                        ? '#087257'
+                        : '#8a5a00'
+                    }}
+                  >
+                    {isCompleted(
+                      currentAssignment.bible_study_date
+                    )
+                      ? '✓ Recited'
+                      : 'Not Recited Yet'}
+                  </span>
+                </div>
+
+                {currentAssignment.verse_text && (
+                  <blockquote
+                    style={{
+                      margin: '24px 0 0',
+                      padding: '18px 20px',
+                      borderLeft: '4px solid #6b35c0',
+                      background: 'white',
+                      borderRadius: '0 14px 14px 0',
+                      fontSize: '20px',
+                      lineHeight: 1.6,
+                      color: '#242938'
+                    }}
+                  >
+                    “{currentAssignment.verse_text}”
+                  </blockquote>
+                )}
+
+                {currentAssignment.notes && (
+                  <div
+                    style={{
+                      marginTop: '18px',
+                      padding: '14px 16px',
+                      borderRadius: '12px',
+                      background: 'white',
+                      border: '1px solid #ececf2'
+                    }}
+                  >
+                    <strong>Servant Note</strong>
+                    <p
+                      style={{
+                        marginBottom: 0,
+                        color: '#606575'
+                      }}
+                    >
+                      {currentAssignment.notes}
+                    </p>
+                  </div>
+                )}
+
+                {!isCompleted(
+                  currentAssignment.bible_study_date
+                ) && (
+                  <p
+                    style={{
+                      marginTop: '18px',
+                      marginBottom: 0,
+                      color: '#6b7280',
+                      fontSize: '14px'
+                    }}
+                  >
+                    When you recite this verse to your servant,
+                    they will mark it complete for you.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '20px',
+                  borderRadius: '14px',
+                  border: '1px solid #ececf2'
+                }}
+              >
+                <strong>
+                  No memory verse has been assigned yet.
+                </strong>
+                <p
+                  style={{
+                    marginBottom: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Check back after your servant assigns this week's
+                  verse.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Previous Memory Verses</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bible Study Week</th>
+                    <th>Verse</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {history.map((item) => (
+                    <tr key={item.id}>
+                      <td>{prettyDate(item.bible_study_date)}</td>
+
+                      <td>
+                        <strong>{item.verse_reference}</strong>
+
+                        {item.verse_text && (
+                          <div
+                            style={{
+                              color: '#6b7280',
+                              fontSize: '14px',
+                              marginTop: '4px',
+                              maxWidth: '620px'
+                            }}
+                          >
+                            {item.verse_text}
+                          </div>
+                        )}
+                      </td>
+
+                      <td>
+                        {isCompleted(item.bible_study_date) ? (
+                          <span
+                            style={{
+                              color: '#087257',
+                              fontWeight: '800'
+                            }}
+                          >
+                            ✓ Recited
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              color: '#8a8f9c',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Not Recited
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!history.length && (
+                    <tr>
+                      <td colSpan="3">
+                        No previous memory verses yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
       )}
     </>
   )
