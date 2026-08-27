@@ -38,6 +38,7 @@ const navigation = {
     ['Dashboard', LayoutDashboard],
     ['My Class', Users],
     ['Daily Readings', BookOpen],
+    ['Weekly Assignments', ClipboardCheck],
     ['Attendance', CheckCircle2],
     ['Quick Entry', ClipboardCheck],
     ['Students', GraduationCap],
@@ -278,6 +279,10 @@ function DashboardShell({ profile }) {
 
       if (activePage === 'Daily Readings') {
         return <ServantDailyReadings profile={profile} />
+      }
+
+      if (activePage === 'Weekly Assignments') {
+        return <ServantWeeklyAssignments profile={profile} />
       }
 
       if (activePage === 'Attendance') {
@@ -2323,6 +2328,633 @@ function ServantDailyReadings({ profile }) {
                     <tr>
                       <td colSpan="4">
                         No past readings yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+
+function ServantWeeklyAssignments({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [weekDate, setWeekDate] = useState(today)
+
+  const [homeworkTitle, setHomeworkTitle] = useState('')
+  const [homeworkInstructions, setHomeworkInstructions] = useState('')
+  const [homeworkDueDate, setHomeworkDueDate] = useState('')
+
+  const [verseReference, setVerseReference] = useState('')
+  const [verseText, setVerseText] = useState('')
+  const [verseNotes, setVerseNotes] = useState('')
+
+  const [homeworkAssignments, setHomeworkAssignments] = useState([])
+  const [memoryAssignments, setMemoryAssignments] = useState([])
+
+  const [loading, setLoading] = useState(true)
+  const [savingHomework, setSavingHomework] = useState(false)
+  const [savingVerse, setSavingVerse] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadAssignedClass()
+  }, [])
+
+  useEffect(() => {
+    if (classId) {
+      loadAssignments()
+    }
+  }, [classId])
+
+  async function loadAssignedClass() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const { data: classRecord, error: classError } =
+      await supabase
+        .from('classes')
+        .select('name')
+        .eq('id', assignment.class_id)
+        .single()
+
+    if (classError) {
+      setMessage(classError.message)
+      setLoading(false)
+      return
+    }
+
+    setClassName(classRecord?.name || 'My Bible Study Class')
+    setLoading(false)
+  }
+
+  async function loadAssignments() {
+    const [homeworkResult, memoryResult] = await Promise.all([
+      supabase
+        .from('homework_assignments')
+        .select(
+          'id, class_id, bible_study_date, title, instructions, due_date, created_by, created_at'
+        )
+        .eq('class_id', classId)
+        .order('bible_study_date', { ascending: false }),
+
+      supabase
+        .from('memory_verse_assignments')
+        .select(
+          'id, class_id, bible_study_date, verse_reference, verse_text, notes, created_by, created_at'
+        )
+        .eq('class_id', classId)
+        .order('bible_study_date', { ascending: false })
+    ])
+
+    if (homeworkResult.error || memoryResult.error) {
+      setMessage(
+        homeworkResult.error?.message ||
+        memoryResult.error?.message
+      )
+      return
+    }
+
+    setHomeworkAssignments(homeworkResult.data || [])
+    setMemoryAssignments(memoryResult.data || [])
+  }
+
+  async function saveHomework(event) {
+    event.preventDefault()
+    setSavingHomework(true)
+    setMessage('')
+
+    if (!weekDate || !homeworkTitle.trim()) {
+      setMessage('Choose the Bible Study date and enter a homework title.')
+      setSavingHomework(false)
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('homework_assignments')
+      .delete()
+      .eq('class_id', classId)
+      .eq('bible_study_date', weekDate)
+
+    if (deleteError) {
+      setMessage(deleteError.message)
+      setSavingHomework(false)
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('homework_assignments')
+      .insert({
+        class_id: classId,
+        bible_study_date: weekDate,
+        title: homeworkTitle.trim(),
+        instructions: homeworkInstructions.trim() || null,
+        due_date: homeworkDueDate || null,
+        created_by: profile.id
+      })
+
+    if (insertError) {
+      setMessage(insertError.message)
+      setSavingHomework(false)
+      return
+    }
+
+    setHomeworkTitle('')
+    setHomeworkInstructions('')
+    setHomeworkDueDate('')
+    setMessage('Homework assigned successfully.')
+    await loadAssignments()
+    setSavingHomework(false)
+  }
+
+  async function saveMemoryVerse(event) {
+    event.preventDefault()
+    setSavingVerse(true)
+    setMessage('')
+
+    if (!weekDate || !verseReference.trim()) {
+      setMessage(
+        'Choose the Bible Study date and enter the memory verse reference.'
+      )
+      setSavingVerse(false)
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('memory_verse_assignments')
+      .delete()
+      .eq('class_id', classId)
+      .eq('bible_study_date', weekDate)
+
+    if (deleteError) {
+      setMessage(deleteError.message)
+      setSavingVerse(false)
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('memory_verse_assignments')
+      .insert({
+        class_id: classId,
+        bible_study_date: weekDate,
+        verse_reference: verseReference.trim(),
+        verse_text: verseText.trim() || null,
+        notes: verseNotes.trim() || null,
+        created_by: profile.id
+      })
+
+    if (insertError) {
+      setMessage(insertError.message)
+      setSavingVerse(false)
+      return
+    }
+
+    setVerseReference('')
+    setVerseText('')
+    setVerseNotes('')
+    setMessage('Memory verse assigned successfully.')
+    await loadAssignments()
+    setSavingVerse(false)
+  }
+
+  function editHomework(item) {
+    setWeekDate(item.bible_study_date)
+    setHomeworkTitle(item.title || '')
+    setHomeworkInstructions(item.instructions || '')
+    setHomeworkDueDate(item.due_date || '')
+    setMessage('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function editMemoryVerse(item) {
+    setWeekDate(item.bible_study_date)
+    setVerseReference(item.verse_reference || '')
+    setVerseText(item.verse_text || '')
+    setVerseNotes(item.notes || '')
+    setMessage('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function deleteHomework(id) {
+    const confirmed = window.confirm('Delete this homework assignment?')
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('homework_assignments')
+      .delete()
+      .eq('id', id)
+      .eq('class_id', classId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage('Homework assignment deleted.')
+    await loadAssignments()
+  }
+
+  async function deleteMemoryVerse(id) {
+    const confirmed = window.confirm('Delete this memory verse assignment?')
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('memory_verse_assignments')
+      .delete()
+      .eq('id', id)
+      .eq('class_id', classId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage('Memory verse assignment deleted.')
+    await loadAssignments()
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Weekly Assignments"
+        subtitle={`${className} • Assign homework and the memory verse for each Bible Study week`}
+      />
+
+      {message && (
+        <div
+          style={{
+            marginTop: '20px',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            background: message.includes('successfully')
+              ? '#ecfdf3'
+              : '#fef3f2',
+            color: message.includes('successfully')
+              ? '#087257'
+              : '#b42318',
+            fontWeight: '600'
+          }}
+        >
+          {message}
+        </div>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your class...</p>
+        </section>
+      ) : (
+        <>
+          <section className="dashboard-card" style={{ marginTop: '24px' }}>
+            <h2>Week</h2>
+
+            <div style={{ maxWidth: '260px' }}>
+              <label>Bible Study Date</label>
+              <input
+                type="date"
+                value={weekDate}
+                onChange={(event) => setWeekDate(event.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Assign Homework</h2>
+
+            <form onSubmit={saveHomework}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px'
+                }}
+              >
+                <div>
+                  <label>Homework Title</label>
+                  <input
+                    type="text"
+                    value={homeworkTitle}
+                    onChange={(event) =>
+                      setHomeworkTitle(event.target.value)
+                    }
+                    placeholder="Example: Finish SPACE PETS Gems"
+                    required
+                    disabled={savingHomework}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label>Due Date</label>
+                  <input
+                    type="date"
+                    value={homeworkDueDate}
+                    onChange={(event) =>
+                      setHomeworkDueDate(event.target.value)
+                    }
+                    disabled={savingHomework}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label>Instructions</label>
+                  <textarea
+                    value={homeworkInstructions}
+                    onChange={(event) =>
+                      setHomeworkInstructions(event.target.value)
+                    }
+                    placeholder="What should the students complete before Friday?"
+                    rows="4"
+                    disabled={savingHomework}
+                    style={{
+                      width: '100%',
+                      resize: 'vertical',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #dfe2ea',
+                      font: 'inherit'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={savingHomework || !classId}
+                style={{ width: 'auto', marginTop: '20px' }}
+              >
+                {savingHomework ? 'Saving...' : 'Assign Homework'}
+              </button>
+            </form>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Assign Memory Verse</h2>
+
+            <form onSubmit={saveMemoryVerse}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px'
+                }}
+              >
+                <div>
+                  <label>Verse Reference</label>
+                  <input
+                    type="text"
+                    value={verseReference}
+                    onChange={(event) =>
+                      setVerseReference(event.target.value)
+                    }
+                    placeholder="Example: Psalm 119:11"
+                    required
+                    disabled={savingVerse}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label>Verse Text</label>
+                  <textarea
+                    value={verseText}
+                    onChange={(event) =>
+                      setVerseText(event.target.value)
+                    }
+                    placeholder="Optional: type the full verse here"
+                    rows="3"
+                    disabled={savingVerse}
+                    style={{
+                      width: '100%',
+                      resize: 'vertical',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #dfe2ea',
+                      font: 'inherit'
+                    }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label>Notes</label>
+                  <textarea
+                    value={verseNotes}
+                    onChange={(event) =>
+                      setVerseNotes(event.target.value)
+                    }
+                    placeholder="Optional reminder or instructions"
+                    rows="3"
+                    disabled={savingVerse}
+                    style={{
+                      width: '100%',
+                      resize: 'vertical',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #dfe2ea',
+                      font: 'inherit'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={savingVerse || !classId}
+                style={{ width: 'auto', marginTop: '20px' }}
+              >
+                {savingVerse ? 'Saving...' : 'Assign Memory Verse'}
+              </button>
+            </form>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Homework History</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bible Study Date</th>
+                    <th>Homework</th>
+                    <th>Due</th>
+                    <th></th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {homeworkAssignments.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.bible_study_date}</td>
+                      <td>
+                        <strong>{item.title}</strong>
+                        {item.instructions && (
+                          <div
+                            style={{
+                              color: '#6b7280',
+                              fontSize: '12px',
+                              marginTop: '4px'
+                            }}
+                          >
+                            {item.instructions}
+                          </div>
+                        )}
+                      </td>
+                      <td>{item.due_date || '—'}</td>
+                      <td>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '8px',
+                            justifyContent: 'flex-end'
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => editHomework(item)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#6b35c0',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteHomework(item.id)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#b42318',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!homeworkAssignments.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No homework assignments yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Memory Verse History</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bible Study Date</th>
+                    <th>Reference</th>
+                    <th>Verse</th>
+                    <th></th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {memoryAssignments.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.bible_study_date}</td>
+                      <td>
+                        <strong>{item.verse_reference}</strong>
+                      </td>
+                      <td>{item.verse_text || '—'}</td>
+                      <td>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '8px',
+                            justifyContent: 'flex-end'
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => editMemoryVerse(item)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#6b35c0',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteMemoryVerse(item.id)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#b42318',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!memoryAssignments.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No memory verses assigned yet.
                       </td>
                     </tr>
                   )}
