@@ -4535,56 +4535,314 @@ function StudentProfile({ profile }) {
 
 
 function ServantDashboard({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
   const [className, setClassName] =
     useState('My Bible Study Class')
-
   const [students, setStudents] = useState([])
+  const [latestFriday, setLatestFriday] = useState(null)
+  const [attendanceRecords, setAttendanceRecords] = useState([])
+  const [weeklyPoints, setWeeklyPoints] = useState(0)
+  const [currentVerse, setCurrentVerse] = useState(null)
+  const [nextHomework, setNextHomework] = useState(null)
+  const [homeworkSubmissions, setHomeworkSubmissions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
-    loadClass()
+    loadDashboard()
   }, [])
 
-  async function loadClass() {
-    const { data: assignment } = await supabase
-      .from('servant_classes')
-      .select('class_id')
-      .eq('servant_id', profile.id)
-      .limit(1)
-      .maybeSingle()
+  async function loadDashboard() {
+    setLoading(true)
+    setMessage('')
 
-    if (!assignment) return
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
 
-    const { data: classRecord } = await supabase
-      .from('classes')
-      .select('*')
-      .eq('id', assignment.class_id)
-      .single()
-
-    if (classRecord) {
-      setClassName(classRecord.name)
-    }
-
-    const { data: memberships } = await supabase
-      .from('class_members')
-      .select('student_id')
-      .eq('class_id', assignment.class_id)
-
-    const studentIds =
-      memberships?.map(
-        (membership) => membership.student_id
-      ) || []
-
-    if (!studentIds.length) {
-      setStudents([])
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
       return
     }
 
-    const { data: studentProfiles } = await supabase
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    const assignedClassId = assignment.class_id
+    setClassId(assignedClassId)
+
+    const [classResult, membershipsResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name')
+        .eq('id', assignedClassId)
+        .single(),
+
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignedClassId)
+    ])
+
+    if (classResult.error || membershipsResult.error) {
+      setMessage(
+        classResult.error?.message ||
+        membershipsResult.error?.message
+      )
+      setLoading(false)
+      return
+    }
+
+    setClassName(classResult.data?.name || 'My Bible Study Class')
+
+    const studentIds =
+      membershipsResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setLoading(false)
+      return
+    }
+
+    const studentsResult = await supabase
       .from('profiles')
       .select('id, first_name, last_name, grade')
       .in('id', studentIds)
+      .eq('active', true)
+      .order('first_name')
 
-    setStudents(studentProfiles || [])
+    if (studentsResult.error) {
+      setMessage(studentsResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const roster = studentsResult.data || []
+    setStudents(roster)
+
+    const ids = roster.map((student) => student.id)
+
+    const latestAttendanceDateResult = await supabase
+      .from('attendance')
+      .select('bible_study_date')
+      .eq('class_id', assignedClassId)
+      .order('bible_study_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const latestDate =
+      latestAttendanceDateResult.data?.bible_study_date || null
+
+    setLatestFriday(latestDate)
+
+    const [
+      attendanceResult,
+      verseResult,
+      homeworkResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ] = await Promise.all([
+      latestDate
+        ? supabase
+            .from('attendance')
+            .select('student_id, present')
+            .eq('class_id', assignedClassId)
+            .eq('bible_study_date', latestDate)
+            .in('student_id', ids)
+        : Promise.resolve({ data: [], error: null }),
+
+      supabase
+        .from('memory_verse_assignments')
+        .select(
+          'id, bible_study_date, verse_reference, verse_text'
+        )
+        .eq('class_id', assignedClassId)
+        .gte('bible_study_date', today)
+        .order('bible_study_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+
+      supabase
+        .from('homework_quizzes')
+        .select(
+          'id, title, bible_study_date, due_date'
+        )
+        .eq('class_id', assignedClassId)
+        .gte('due_date', today)
+        .order('due_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+
+      supabase
+        .from('participation')
+        .select('student_id, points, bible_study_date')
+        .eq('class_id', assignedClassId)
+        .in('student_id', ids),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, points, bible_study_date')
+        .eq('class_id', assignedClassId)
+        .in('student_id', ids),
+
+      supabase
+        .from('point_rules')
+        .select('category, points')
+    ])
+
+    const firstError = [
+      attendanceResult,
+      verseResult,
+      homeworkResult,
+      participationResult,
+      bonusResult,
+      rulesResult
+    ].find((result) => result?.error)?.error
+
+    if (firstError) {
+      setMessage(firstError.message)
+      setLoading(false)
+      return
+    }
+
+    setAttendanceRecords(attendanceResult.data || [])
+    setCurrentVerse(verseResult.data || null)
+    setNextHomework(homeworkResult.data || null)
+
+    const pointRules = {}
+    ;(rulesResult.data || []).forEach((rule) => {
+      pointRules[rule.category] = Number(rule.points) || 0
+    })
+
+    let thisWeekPoints = 0
+
+    if (latestDate) {
+      const [attendancePointsResult, homeworkPointsResult, versePointsResult, biblePointsResult] =
+        await Promise.all([
+          supabase
+            .from('attendance')
+            .select('present')
+            .eq('class_id', assignedClassId)
+            .eq('bible_study_date', latestDate)
+            .in('student_id', ids),
+
+          supabase
+            .from('homework')
+            .select('completed')
+            .eq('class_id', assignedClassId)
+            .eq('bible_study_date', latestDate)
+            .in('student_id', ids),
+
+          supabase
+            .from('memory_verses')
+            .select('completed')
+            .eq('class_id', assignedClassId)
+            .eq('bible_study_date', latestDate)
+            .in('student_id', ids),
+
+          supabase
+            .from('physical_bible')
+            .select('brought_bible')
+            .eq('class_id', assignedClassId)
+            .eq('bible_study_date', latestDate)
+            .in('student_id', ids)
+        ])
+
+      const countTrue = (rows, field) =>
+        (rows || []).filter((row) => row[field] === true).length
+
+      thisWeekPoints +=
+        countTrue(attendancePointsResult.data, 'present') *
+        (pointRules.attendance || 0)
+
+      thisWeekPoints +=
+        countTrue(homeworkPointsResult.data, 'completed') *
+        (pointRules.homework || 0)
+
+      thisWeekPoints +=
+        countTrue(versePointsResult.data, 'completed') *
+        (pointRules.memory_verse || 0)
+
+      thisWeekPoints +=
+        countTrue(biblePointsResult.data, 'brought_bible') *
+        (pointRules.physical_bible || 0)
+
+      thisWeekPoints +=
+        (participationResult.data || [])
+          .filter((row) => row.bible_study_date === latestDate)
+          .reduce(
+            (sum, row) => sum + (Number(row.points) || 0),
+            0
+          )
+
+      thisWeekPoints +=
+        (bonusResult.data || [])
+          .filter((row) => row.bible_study_date === latestDate)
+          .reduce(
+            (sum, row) => sum + (Number(row.points) || 0),
+            0
+          )
+    }
+
+    setWeeklyPoints(thisWeekPoints)
+
+    if (homeworkResult.data?.id) {
+      const submissionsResult = await supabase
+        .from('homework_submissions')
+        .select('student_id, quiz_id')
+        .eq('quiz_id', homeworkResult.data.id)
+        .in('student_id', ids)
+
+      if (!submissionsResult.error) {
+        setHomeworkSubmissions(submissionsResult.data || [])
+      }
+    } else {
+      setHomeworkSubmissions([])
+    }
+
+    setLoading(false)
+  }
+
+  const presentCount = attendanceRecords.filter(
+    (record) => record.present === true
+  ).length
+
+  const attendancePercent = attendanceRecords.length
+    ? Math.round(
+        (presentCount / attendanceRecords.length) * 100
+      )
+    : 0
+
+  const submittedIds = new Set(
+    homeworkSubmissions.map((item) => item.student_id)
+  )
+
+  const missingHomework = nextHomework
+    ? students.filter((student) => !submittedIds.has(student.id))
+    : []
+
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
   }
 
   return (
@@ -4594,86 +4852,282 @@ function ServantDashboard({ profile }) {
         subtitle={`${className} • ${students.length} students`}
       />
 
-      <div className="stats-grid">
-        <StatCard
-          icon={<Users />}
-          label="Students"
-          value={students.length}
-          helper="Class roster"
-        />
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
 
-        <StatCard
-          icon={<CheckCircle2 />}
-          label="Present"
-          value="—"
-          helper="This Friday"
-        />
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading class dashboard...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={students.length}
+              helper="Class roster"
+            />
 
-        <StatCard
-          icon={<BarChart3 />}
-          label="Attendance"
-          value="—"
-          helper="Class average"
-        />
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Present"
+              value={
+                latestFriday
+                  ? `${presentCount}/${students.length}`
+                  : '—'
+              }
+              helper={
+                latestFriday
+                  ? `Latest Friday • ${prettyDate(latestFriday)}`
+                  : 'No attendance yet'
+              }
+            />
 
-        <StatCard
-          icon={<Star />}
-          label="Points Awarded"
-          value="—"
-          helper="This week"
-        />
-      </div>
+            <StatCard
+              icon={<BarChart3 />}
+              label="Attendance"
+              value={
+                latestFriday
+                  ? `${attendancePercent}%`
+                  : '—'
+              }
+              helper="Latest recorded Friday"
+            />
 
-      <section className="dashboard-card">
-        <h2>Class Roster</h2>
+            <StatCard
+              icon={<Star />}
+              label="Points Awarded"
+              value={weeklyPoints}
+              helper={
+                latestFriday
+                  ? `For ${prettyDate(latestFriday)}`
+                  : 'No Friday recorded yet'
+              }
+            />
+          </div>
 
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Attendance</th>
-                <th>Reading</th>
-                <th>Homework</th>
-                <th>Memory Verse</th>
-                <th>Physical Bible</th>
-              </tr>
-            </thead>
+          <section className="dashboard-card">
+            <h2>This Week</h2>
 
-            <tbody>
-              {students.map((student) => (
-                <tr key={student.id}>
-                  <td>
-                    <strong>
-                      {student.first_name}{' '}
-                      {student.last_name}
-                    </strong>
-                  </td>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(230px, 1fr))',
+                gap: '16px',
+                marginTop: '18px'
+              }}
+            >
+              <div
+                style={{
+                  border: '1px solid #ececf2',
+                  borderRadius: '16px',
+                  padding: '18px'
+                }}
+              >
+                <GraduationCap size={22} />
+                <h3 style={{ marginBottom: '6px' }}>
+                  Memory Verse
+                </h3>
+                <strong style={{ color: '#6b35c0' }}>
+                  {currentVerse?.verse_reference ||
+                    'No upcoming verse'}
+                </strong>
+                {currentVerse?.bible_study_date && (
+                  <p
+                    style={{
+                      color: '#6b7280',
+                      marginBottom: 0
+                    }}
+                  >
+                    For {prettyDate(currentVerse.bible_study_date)}
+                  </p>
+                )}
+              </div>
 
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                </tr>
-              ))}
+              <div
+                style={{
+                  border: '1px solid #ececf2',
+                  borderRadius: '16px',
+                  padding: '18px'
+                }}
+              >
+                <ClipboardCheck size={22} />
+                <h3 style={{ marginBottom: '6px' }}>
+                  Upcoming Homework
+                </h3>
+                <strong style={{ color: '#6b35c0' }}>
+                  {nextHomework?.title || 'No upcoming homework'}
+                </strong>
+                {nextHomework?.due_date && (
+                  <p
+                    style={{
+                      color: '#6b7280',
+                      marginBottom: 0
+                    }}
+                  >
+                    Due {prettyDate(nextHomework.due_date)}
+                  </p>
+                )}
+              </div>
 
-              {!students.length && (
-                <tr>
-                  <td colSpan="6">
-                    No students are assigned to this class
-                    yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              <div
+                style={{
+                  border: '1px solid #ececf2',
+                  borderRadius: '16px',
+                  padding: '18px'
+                }}
+              >
+                <Users size={22} />
+                <h3 style={{ marginBottom: '6px' }}>
+                  Homework Submitted
+                </h3>
+                <strong style={{ color: '#6b35c0' }}>
+                  {nextHomework
+                    ? `${homeworkSubmissions.length}/${students.length}`
+                    : '—'}
+                </strong>
+                <p
+                  style={{
+                    color: '#6b7280',
+                    marginBottom: 0
+                  }}
+                >
+                  {nextHomework
+                    ? 'For the next homework quiz'
+                    : 'No upcoming homework'}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Needs Attention</h2>
+
+            {!nextHomework ? (
+              <p style={{ color: '#6b7280' }}>
+                No upcoming homework is assigned.
+              </p>
+            ) : missingHomework.length ? (
+              <div
+                style={{
+                  marginTop: '16px',
+                  border: '1px solid #f1dfb8',
+                  borderRadius: '14px',
+                  background: '#fffaf0',
+                  padding: '16px'
+                }}
+              >
+                <strong>
+                  {missingHomework.length} student
+                  {missingHomework.length === 1 ? '' : 's'} still
+                  need to submit {nextHomework.title}.
+                </strong>
+
+                <p
+                  style={{
+                    marginBottom: 0,
+                    color: '#6b7280',
+                    marginTop: '8px'
+                  }}
+                >
+                  {missingHomework
+                    .map(
+                      (student) =>
+                        `${student.first_name} ${student.last_name}`
+                    )
+                    .join(', ')}
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '16px',
+                  border: '1px solid #b7ead5',
+                  borderRadius: '14px',
+                  background: '#ecfdf3',
+                  padding: '16px',
+                  color: '#087257',
+                  fontWeight: '700'
+                }}
+              >
+                ✓ Everyone has submitted the upcoming homework!
+              </div>
+            )}
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Class Roster</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Grade</th>
+                    <th>Latest Attendance</th>
+                    <th>Upcoming Homework</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {students.map((student) => {
+                    const attendanceRecord =
+                      attendanceRecords.find(
+                        (record) =>
+                          record.student_id === student.id
+                      )
+
+                    return (
+                      <tr key={student.id}>
+                        <td>
+                          <strong>
+                            {student.first_name}{' '}
+                            {student.last_name}
+                          </strong>
+                        </td>
+
+                        <td>{student.grade || '—'}</td>
+
+                        <td>
+                          {!latestFriday
+                            ? '—'
+                            : attendanceRecord?.present
+                              ? '✓ Present'
+                              : 'Absent'}
+                        </td>
+
+                        <td>
+                          {!nextHomework
+                            ? '—'
+                            : submittedIds.has(student.id)
+                              ? '✓ Submitted'
+                              : 'Not submitted'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+
+                  {!students.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No students are assigned to this class yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </>
   )
 }
-
 
 
 function ServantMyClass({ profile }) {
