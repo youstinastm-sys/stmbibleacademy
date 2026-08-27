@@ -338,6 +338,10 @@ function DashboardShell({ profile }) {
         return <StudentAchievements profile={profile} />
       }
 
+      if (activePage === 'Physical Bible') {
+        return <StudentPhysicalBible profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -3343,6 +3347,283 @@ function StudentAchievements({ profile }) {
                   track={track}
                 />
               ))}
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
+
+
+
+function StudentPhysicalBible({ profile }) {
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadPhysicalBible()
+  }, [])
+
+  async function loadPhysicalBible() {
+    setLoading(true)
+    setMessage('')
+
+    const { data, error } = await supabase
+      .from('physical_bible')
+      .select(
+        'id, student_id, class_id, bible_study_date, brought_bible, recorded_by, created_at'
+      )
+      .eq('student_id', profile.id)
+      .order('bible_study_date', { ascending: false })
+
+    if (error) {
+      setMessage(error.message)
+      setLoading(false)
+      return
+    }
+
+    setRecords(data || [])
+    setLoading(false)
+  }
+
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
+  const broughtCount = records.filter(
+    (record) => record.brought_bible === true
+  ).length
+
+  const totalCount = records.length
+
+  const percentage = totalCount
+    ? Math.round((broughtCount / totalCount) * 100)
+    : 0
+
+  const currentRecord = records[0] || null
+
+  return (
+    <>
+      <DashboardHeader
+        title="Physical Bible"
+        subtitle="Bring your Bible, follow along, and stay ready for Bible Study."
+      />
+
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your Bible record...</p>
+        </section>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              icon={<BookOpen />}
+              label="Brought Bible"
+              value={broughtCount}
+              helper="Bible Study Fridays"
+            />
+
+            <StatCard
+              icon={<BarChart3 />}
+              label="Consistency"
+              value={`${percentage}%`}
+              helper="Times Bible was brought"
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Latest Friday"
+              value={
+                currentRecord?.brought_bible
+                  ? 'Brought ✓'
+                  : currentRecord
+                    ? 'Not Brought'
+                    : '—'
+              }
+              helper={
+                currentRecord
+                  ? currentRecord.bible_study_date
+                  : 'No record yet'
+              }
+            />
+          </div>
+
+          <section className="dashboard-card">
+            <h2>Latest Bible Study</h2>
+
+            {currentRecord ? (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '22px',
+                  borderRadius: '16px',
+                  border: currentRecord.brought_bible
+                    ? '1px solid #b7ead5'
+                    : '1px solid #ececf2',
+                  background: currentRecord.brought_bible
+                    ? '#ecfdf3'
+                    : '#fafafa'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '14px',
+                    alignItems: 'center',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '14px',
+                        marginBottom: '5px'
+                      }}
+                    >
+                      {prettyDate(
+                        currentRecord.bible_study_date
+                      )}
+                    </div>
+
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontSize: '24px'
+                      }}
+                    >
+                      {currentRecord.brought_bible
+                        ? '📕 Bible Ready!'
+                        : 'Remember Your Bible Next Time'}
+                    </h3>
+                  </div>
+
+                  <span
+                    style={{
+                      padding: '9px 13px',
+                      borderRadius: '999px',
+                      fontWeight: '800',
+                      background: currentRecord.brought_bible
+                        ? 'white'
+                        : '#f2f2f5',
+                      color: currentRecord.brought_bible
+                        ? '#087257'
+                        : '#6b7280'
+                    }}
+                  >
+                    {currentRecord.brought_bible
+                      ? '✓ Brought Bible'
+                      : 'Not Brought'}
+                  </span>
+                </div>
+
+                <p
+                  style={{
+                    marginBottom: 0,
+                    marginTop: '14px',
+                    color: currentRecord.brought_bible
+                      ? '#356859'
+                      : '#6b7280'
+                  }}
+                >
+                  {currentRecord.brought_bible
+                    ? 'Your servant marked that you brought your physical Bible to Bible Study.'
+                    : 'Your servant marked that a physical Bible was not brought for this Bible Study.'}
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '22px',
+                  border: '1px solid #ececf2',
+                  borderRadius: '14px'
+                }}
+              >
+                <strong>No Bible records yet.</strong>
+                <p
+                  style={{
+                    marginBottom: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Your servant will record this during Bible Study.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Physical Bible History</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bible Study Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {records.map((record) => (
+                    <tr key={record.id}>
+                      <td>
+                        {prettyDate(record.bible_study_date)}
+                      </td>
+
+                      <td>
+                        {record.brought_bible ? (
+                          <span
+                            style={{
+                              color: '#087257',
+                              fontWeight: '800'
+                            }}
+                          >
+                            ✓ Brought Bible
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              color: '#8a8f9c',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Not Brought
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!records.length && (
+                    <tr>
+                      <td colSpan="2">
+                        No physical Bible records yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         </>
