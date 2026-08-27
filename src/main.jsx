@@ -15226,6 +15226,13 @@ function AdminSettings() {
   const [accountType, setAccountType] = useState(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+
+  const [newClassName, setNewClassName] = useState('')
+  const [newGradeGroup, setNewGradeGroup] = useState('')
+  const [classSaving, setClassSaving] = useState(false)
+  const [editingClassId, setEditingClassId] = useState(null)
+  const [classDrafts, setClassDrafts] = useState({})
+
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -15241,6 +15248,7 @@ function AdminSettings() {
 
   async function loadSettings() {
     setLoading(true)
+    setMessage('')
 
     const { data, error } = await supabase
       .from('classes')
@@ -15248,10 +15256,23 @@ function AdminSettings() {
       .order('id')
 
     if (error) {
-      console.error('Settings classes error:', error)
+      setMessage(error.message)
+      setLoading(false)
+      return
     }
 
-    setClasses(data || [])
+    const rows = data || []
+    setClasses(rows)
+
+    const drafts = {}
+    rows.forEach((classItem) => {
+      drafts[classItem.id] = {
+        name: classItem.name || '',
+        grade_group: classItem.grade_group || '',
+        active: classItem.active !== false
+      }
+    })
+    setClassDrafts(drafts)
     setLoading(false)
   }
 
@@ -15313,7 +15334,9 @@ function AdminSettings() {
     }
 
     if (form.password.length < 6) {
-      setMessage('The temporary password must be at least 6 characters.')
+      setMessage(
+        'The temporary password must be at least 6 characters.'
+      )
       setSaving(false)
       return
     }
@@ -15337,8 +15360,6 @@ function AdminSettings() {
     )
 
     if (error) {
-      console.error('Create account function error:', error)
-
       let detail = error.message
 
       try {
@@ -15379,12 +15400,88 @@ function AdminSettings() {
     setSaving(false)
   }
 
+  function updateClassDraft(classId, field, value) {
+    setClassDrafts((current) => ({
+      ...current,
+      [classId]: {
+        ...(current[classId] || {}),
+        [field]: value
+      }
+    }))
+    setMessage('')
+  }
+
+  async function createClass(event) {
+    event.preventDefault()
+    setClassSaving(true)
+    setMessage('')
+
+    if (!newClassName.trim()) {
+      setMessage('Please enter a class name.')
+      setClassSaving(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from('classes')
+      .insert({
+        name: newClassName.trim(),
+        grade_group: newGradeGroup.trim() || null,
+        active: true
+      })
+
+    if (error) {
+      setMessage(error.message)
+      setClassSaving(false)
+      return
+    }
+
+    setNewClassName('')
+    setNewGradeGroup('')
+    setMessage('Class created successfully.')
+    await loadSettings()
+    setClassSaving(false)
+  }
+
+  async function saveClass(classId) {
+    const draft = classDrafts[classId]
+
+    if (!draft?.name?.trim()) {
+      setMessage('Class name cannot be blank.')
+      return
+    }
+
+    setClassSaving(true)
+    setMessage('')
+
+    const { error } = await supabase
+      .from('classes')
+      .update({
+        name: draft.name.trim(),
+        grade_group: draft.grade_group?.trim() || null,
+        active: draft.active !== false
+      })
+      .eq('id', classId)
+
+    if (error) {
+      setMessage(error.message)
+      setClassSaving(false)
+      return
+    }
+
+    setEditingClassId(null)
+    setMessage('Class updated successfully.')
+    await loadSettings()
+    setClassSaving(false)
+  }
+
   if (accountType) {
     const isStudent = accountType === 'student'
 
     return (
       <>
         <button
+          type="button"
           onClick={closeAccountForm}
           disabled={saving}
           style={{
@@ -15393,7 +15490,7 @@ function AdminSettings() {
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            padding: '0',
+            padding: 0,
             marginBottom: '18px',
             cursor: saving ? 'default' : 'pointer',
             color: '#6b35c0',
@@ -15408,159 +15505,117 @@ function AdminSettings() {
           title={isStudent ? 'Add Student' : 'Add Servant'}
           subtitle={
             isStudent
-              ? 'Create a student login and assign a Bible Study class'
-              : 'Create a servant login and assign a Bible Study class'
+              ? 'Create a student login and assign their Bible Study class'
+              : 'Create a servant login and assign their Bible Study class'
           }
         />
 
-        <section
-          className="dashboard-card"
-          style={{
-            marginTop: '24px',
-            maxWidth: '760px'
-          }}
-        >
-          <h2>
-            {isStudent ? 'Student Account' : 'Servant Account'}
-          </h2>
-
-          <p
+        <section className="dashboard-card">
+          <form
+            onSubmit={createAccount}
             style={{
-              color: '#6b7280',
-              marginTop: '-8px',
-              marginBottom: '22px'
+              display: 'grid',
+              gap: '16px',
+              maxWidth: '720px'
             }}
           >
-            The email and temporary password will be used to log in
-            to Bible Study Academy.
-          </p>
-
-          <form onSubmit={createAccount}>
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns:
                   'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: '16px'
+                gap: '14px'
               }}
             >
               <div>
                 <label>First Name</label>
                 <input
-                  type="text"
                   value={form.first_name}
                   onChange={(event) =>
                     updateForm('first_name', event.target.value)
                   }
-                  placeholder="First name"
                   required
-                  disabled={saving}
-                  style={{ width: '100%' }}
                 />
               </div>
 
               <div>
                 <label>Last Name</label>
                 <input
-                  type="text"
                   value={form.last_name}
                   onChange={(event) =>
                     updateForm('last_name', event.target.value)
                   }
-                  placeholder="Last name"
                   required
-                  disabled={saving}
-                  style={{ width: '100%' }}
                 />
               </div>
+            </div>
 
+            <div>
+              <label>Email</label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(event) =>
+                  updateForm('email', event.target.value)
+                }
+                required
+              />
+            </div>
+
+            <div>
+              <label>Temporary Password</label>
+              <input
+                type="text"
+                value={form.password}
+                onChange={(event) =>
+                  updateForm('password', event.target.value)
+                }
+                placeholder="At least 6 characters"
+                required
+              />
+            </div>
+
+            {isStudent && (
               <div>
-                <label>Email</label>
+                <label>Grade</label>
                 <input
-                  type="email"
-                  value={form.email}
+                  value={form.grade}
                   onChange={(event) =>
-                    updateForm('email', event.target.value)
+                    updateForm('grade', event.target.value)
                   }
-                  placeholder="student@example.com"
+                  placeholder="Example: 3rd Grade"
                   required
-                  disabled={saving}
-                  style={{ width: '100%' }}
                 />
               </div>
+            )}
 
-              <div>
-                <label>Temporary Password</label>
-                <input
-                  type="text"
-                  value={form.password}
-                  onChange={(event) =>
-                    updateForm('password', event.target.value)
-                  }
-                  placeholder="At least 6 characters"
-                  minLength="6"
-                  required
-                  disabled={saving}
-                  style={{ width: '100%' }}
-                />
-              </div>
+            <div>
+              <label>Bible Study Class</label>
+              <select
+                value={form.class_id}
+                onChange={(event) =>
+                  updateForm('class_id', event.target.value)
+                }
+                required
+              >
+                <option value="">Choose a class</option>
 
-              {isStudent && (
-                <div>
-                  <label>Grade</label>
-                  <input
-                    type="text"
-                    value={form.grade}
-                    onChange={(event) =>
-                      updateForm('grade', event.target.value)
-                    }
-                    placeholder="Example: 3rd"
-                    required
-                    disabled={saving}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label>Bible Study Class</label>
-                <select
-                  value={form.class_id}
-                  onChange={(event) =>
-                    updateForm('class_id', event.target.value)
-                  }
-                  required
-                  disabled={saving || loading}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: '12px',
-                    border: '1px solid #dfe2ea',
-                    background: 'white'
-                  }}
-                >
-                  <option value="">
-                    Select a class
-                  </option>
-
-                  {classes
-                    .filter((classItem) => classItem.active)
-                    .map((classItem) => (
-                      <option
-                        key={classItem.id}
-                        value={classItem.id}
-                      >
-                        {classItem.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
+                {classes
+                  .filter((classItem) => classItem.active)
+                  .map((classItem) => (
+                    <option
+                      key={classItem.id}
+                      value={classItem.id}
+                    >
+                      {classItem.name}
+                    </option>
+                  ))}
+              </select>
             </div>
 
             {message && (
               <div
                 style={{
-                  marginTop: '18px',
                   padding: '12px 14px',
                   borderRadius: '12px',
                   background: message.includes('successfully')
@@ -15580,14 +15635,13 @@ function AdminSettings() {
               style={{
                 display: 'flex',
                 gap: '10px',
-                marginTop: '22px',
                 flexWrap: 'wrap'
               }}
             >
               <button
                 className="primary-button small-button"
                 type="submit"
-                disabled={saving || loading}
+                disabled={saving}
                 style={{ width: 'auto' }}
               >
                 {saving
@@ -15619,43 +15673,175 @@ function AdminSettings() {
     )
   }
 
+  const activeClasses = classes.filter(
+    (classItem) => classItem.active
+  ).length
+
   return (
     <>
       <DashboardHeader
         title="Settings"
-        subtitle="Manage Bible Study Academy"
+        subtitle="Manage Bible Study Academy structure and accounts"
       />
 
-      <section className="dashboard-card" style={{ marginTop: '24px' }}>
-        <h2>Academy</h2>
+      {message && (
+        <section className="dashboard-card">
+          <p
+            style={{
+              margin: 0,
+              color: message.includes('successfully')
+                ? '#087257'
+                : '#b42318',
+              fontWeight: '600'
+            }}
+          >
+            {message}
+          </p>
+        </section>
+      )}
+
+      <div className="stats-grid">
+        <StatCard
+          icon={<BookOpen />}
+          label="Classes"
+          value={classes.length}
+          helper="All class records"
+        />
+
+        <StatCard
+          icon={<CheckCircle2 />}
+          label="Active Classes"
+          value={activeClasses}
+          helper="Currently available"
+        />
+      </div>
+
+      <section className="dashboard-card">
+        <h2>Account Management</h2>
+
+        <p
+          style={{
+            color: '#6b7280',
+            marginTop: '-8px'
+          }}
+        >
+          Create a login, profile, and initial class assignment
+          together.
+        </p>
 
         <div
           style={{
             display: 'grid',
-            gap: '14px',
-            maxWidth: '620px'
+            gridTemplateColumns:
+              'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '16px',
+            marginTop: '18px'
           }}
         >
-          <div
+          <button
+            type="button"
+            onClick={() => openAccountForm('student')}
             style={{
-              padding: '16px',
-              border: '1px solid #ececf2',
-              borderRadius: '14px'
+              border: '1px solid #e7e7ef',
+              background: 'white',
+              borderRadius: '16px',
+              padding: '20px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              font: 'inherit'
             }}
           >
-            <strong>Bible Study Academy</strong>
+            <GraduationCap size={24} color="#6b35c0" />
+            <h3 style={{ marginBottom: '5px' }}>
+              Add Student
+            </h3>
             <p
               style={{
-                margin: '5px 0 0',
                 color: '#6b7280',
+                margin: 0,
                 fontSize: '13px'
               }}
             >
-              General academy settings will live here as we add
-              school-year, leaderboard, achievement, and reading controls.
+              Create the student account and assign their class.
             </p>
-          </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openAccountForm('servant')}
+            style={{
+              border: '1px solid #e7e7ef',
+              background: 'white',
+              borderRadius: '16px',
+              padding: '20px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              font: 'inherit'
+            }}
+          >
+            <UserRound size={24} color="#6b35c0" />
+            <h3 style={{ marginBottom: '5px' }}>
+              Add Servant
+            </h3>
+            <p
+              style={{
+                color: '#6b7280',
+                margin: 0,
+                fontSize: '13px'
+              }}
+            >
+              Create the servant account and initial class
+              assignment.
+            </p>
+          </button>
         </div>
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Create a Class</h2>
+
+        <form
+          onSubmit={createClass}
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              'minmax(220px, 1fr) minmax(180px, 1fr) auto',
+            gap: '12px',
+            alignItems: 'end',
+            marginTop: '18px'
+          }}
+        >
+          <div>
+            <label>Class Name</label>
+            <input
+              value={newClassName}
+              onChange={(event) =>
+                setNewClassName(event.target.value)
+              }
+              placeholder="Example: 3rd & 4th Grade"
+            />
+          </div>
+
+          <div>
+            <label>Grade Group</label>
+            <input
+              value={newGradeGroup}
+              onChange={(event) =>
+                setNewGradeGroup(event.target.value)
+              }
+              placeholder="Example: Grades 3–4"
+            />
+          </div>
+
+          <button
+            className="primary-button small-button"
+            type="submit"
+            disabled={classSaving}
+            style={{ width: 'auto' }}
+          >
+            {classSaving ? 'Creating...' : 'Create Class'}
+          </button>
+        </form>
       </section>
 
       <section className="dashboard-card">
@@ -15671,103 +15857,179 @@ function AdminSettings() {
                   <th>Class</th>
                   <th>Grade Group</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
+
               <tbody>
-                {classes.map((classItem) => (
-                  <tr key={classItem.id}>
-                    <td>
-                      <strong>{classItem.name}</strong>
-                    </td>
-                    <td>{classItem.grade_group || '—'}</td>
-                    <td>
-                      {classItem.active ? 'Active' : 'Inactive'}
+                {classes.map((classItem) => {
+                  const editing =
+                    editingClassId === classItem.id
+                  const draft =
+                    classDrafts[classItem.id] || {
+                      name: classItem.name,
+                      grade_group:
+                        classItem.grade_group || '',
+                      active: classItem.active
+                    }
+
+                  return (
+                    <tr key={classItem.id}>
+                      <td>
+                        {editing ? (
+                          <input
+                            value={draft.name}
+                            onChange={(event) =>
+                              updateClassDraft(
+                                classItem.id,
+                                'name',
+                                event.target.value
+                              )
+                            }
+                          />
+                        ) : (
+                          <strong>{classItem.name}</strong>
+                        )}
+                      </td>
+
+                      <td>
+                        {editing ? (
+                          <input
+                            value={draft.grade_group}
+                            onChange={(event) =>
+                              updateClassDraft(
+                                classItem.id,
+                                'grade_group',
+                                event.target.value
+                              )
+                            }
+                          />
+                        ) : (
+                          classItem.grade_group || '—'
+                        )}
+                      </td>
+
+                      <td>
+                        {editing ? (
+                          <select
+                            value={
+                              draft.active ? 'active' : 'inactive'
+                            }
+                            onChange={(event) =>
+                              updateClassDraft(
+                                classItem.id,
+                                'active',
+                                event.target.value === 'active'
+                              )
+                            }
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">
+                              Inactive
+                            </option>
+                          </select>
+                        ) : classItem.active ? (
+                          'Active'
+                        ) : (
+                          'Inactive'
+                        )}
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
+                        {editing ? (
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '8px',
+                              justifyContent: 'flex-end'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                saveClass(classItem.id)
+                              }
+                              disabled={classSaving}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#6b35c0',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Save
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingClassId(null)
+                                updateClassDraft(
+                                  classItem.id,
+                                  'name',
+                                  classItem.name
+                                )
+                                updateClassDraft(
+                                  classItem.id,
+                                  'grade_group',
+                                  classItem.grade_group || ''
+                                )
+                                updateClassDraft(
+                                  classItem.id,
+                                  'active',
+                                  classItem.active
+                                )
+                              }}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#6b7280',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingClassId(classItem.id)
+                            }
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#6b35c0',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {!classes.length && (
+                  <tr>
+                    <td colSpan="4">
+                      No classes have been created yet.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
         )}
       </section>
-
-      <section className="dashboard-card">
-        <h2>Account Management</h2>
-
-        <p style={{ color: '#6b7280', marginBottom: '14px' }}>
-          Create a login, profile, and class assignment together.
-        </p>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: '14px'
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => openAccountForm('student')}
-            style={{
-              padding: '18px',
-              border: '1px solid #ececf2',
-              borderRadius: '14px',
-              background: 'white',
-              textAlign: 'left',
-              cursor: 'pointer',
-              font: 'inherit'
-            }}
-          >
-            <GraduationCap size={24} />
-            <h3 style={{ marginBottom: '6px' }}>
-              Add Student
-            </h3>
-            <p
-              style={{
-                color: '#6b7280',
-                fontSize: '13px',
-                marginBottom: 0
-              }}
-            >
-              Create a student login, choose their grade, and
-              assign them to a Bible Study class.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => openAccountForm('servant')}
-            style={{
-              padding: '18px',
-              border: '1px solid #ececf2',
-              borderRadius: '14px',
-              background: 'white',
-              textAlign: 'left',
-              cursor: 'pointer',
-              font: 'inherit'
-            }}
-          >
-            <UserRound size={24} />
-            <h3 style={{ marginBottom: '6px' }}>
-              Add Servant
-            </h3>
-            <p
-              style={{
-                color: '#6b7280',
-                fontSize: '13px',
-                marginBottom: 0
-              }}
-            >
-              Create a servant login and assign them to their
-              Bible Study class.
-            </p>
-          </button>
-        </div>
-      </section>
     </>
   )
 }
+
 
 function ComingSoon({ title, role }) {
   return (
