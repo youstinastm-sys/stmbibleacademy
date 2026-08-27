@@ -176,53 +176,153 @@ function Login() {
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-logo">
-          <BookOpen size={30} />
+    <div
+      className="login-page"
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '34px 18px',
+        background:
+          'linear-gradient(180deg, #f8f4ff 0%, #f3eefb 52%, #eee7f8 100%)'
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '500px'
+        }}
+      >
+        <div
+          style={{
+            textAlign: 'center',
+            marginBottom: '22px'
+          }}
+        >
+          <img
+            src="/Logo%201.png"
+            alt="St. Macarius the Great Coptic Orthodox Church"
+            style={{
+              width: '190px',
+              maxWidth: '48vw',
+              height: 'auto',
+              display: 'block',
+              margin: '0 auto 14px'
+            }}
+          />
+
+          <div
+            style={{
+              fontSize: '13px',
+              fontWeight: '800',
+              letterSpacing: '0.15em',
+              textTransform: 'uppercase',
+              color: '#6b35c0',
+              marginBottom: '7px'
+            }}
+          >
+            Bible Study Academy
+          </div>
+
+          <h1
+            style={{
+              margin: 0,
+              fontSize: '30px',
+              color: '#1f2430'
+            }}
+          >
+            Welcome Back
+          </h1>
+
+          <p
+            style={{
+              margin: '8px 0 0',
+              color: '#6b7280',
+              lineHeight: 1.5
+            }}
+          >
+            St. Macarius the Great Coptic Orthodox Church
+          </p>
+
+          <p
+            style={{
+              margin: '5px 0 0',
+              color: '#6b35c0',
+              fontWeight: '700',
+              fontSize: '14px'
+            }}
+          >
+            Growing in God's Word Together
+          </p>
         </div>
 
-        <h1>Bible Study Academy</h1>
+        <div
+          className="login-card"
+          style={{
+            maxWidth: 'none',
+            margin: 0,
+            borderRadius: '22px',
+            border: '1px solid #e8e3f3',
+            boxShadow: '0 18px 50px rgba(50, 33, 92, 0.10)',
+            background: 'white'
+          }}
+        >
+          <form onSubmit={handleLogin}>
+            <label>Email</label>
 
-        <p className="login-subtitle">
-          Grow in God's Word, one day at a time.
-        </p>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                setErrorMessage('')
+              }}
+              placeholder="you@example.com"
+              required
+              disabled={busy}
+            />
 
-        <form onSubmit={handleLogin}>
-          <label>Email</label>
+            <label>Password</label>
 
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
-            required
-          />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value)
+                setErrorMessage('')
+              }}
+              placeholder="Enter your password"
+              required
+              disabled={busy}
+            />
 
-          <label>Password</label>
+            {errorMessage && (
+              <div className="error-message">
+                {errorMessage}
+              </div>
+            )}
 
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Enter your password"
-            required
-          />
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={busy}
+            >
+              {busy ? 'Signing in...' : 'Log In'}
+            </button>
 
-          {errorMessage && (
-            <div className="error-message">
-              {errorMessage}
-            </div>
-          )}
-
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={busy}
-          >
-            {busy ? 'Signing in...' : 'Log In'}
-          </button>
-        </form>
+            <p
+              style={{
+                textAlign: 'center',
+                margin: '18px 0 0',
+                color: '#7b8190',
+                fontSize: '13px'
+              }}
+            >
+              Need an account? Contact your Bible Study servant.
+            </p>
+          </form>
+        </div>
       </div>
     </div>
   )
