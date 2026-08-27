@@ -3236,54 +3236,118 @@ function ServantWeeklyAssignments({ profile }) {
                     )}
 
                     {question.question_type === 'true_false' && (
-                      <div
-                        style={{
-                          maxWidth: '260px',
-                          marginTop: '14px'
-                        }}
-                      >
-                        <label>Correct Answer</label>
-                        <select
-                          value={question.correct_answer}
-                          onChange={(event) =>
-                            updateQuestion(
-                              index,
-                              'correct_answer',
-                              event.target.value
-                            )
-                          }
-                          disabled={savingQuiz}
-                          style={{ width: '100%' }}
+                      <div style={{ marginTop: '16px' }}>
+                        <label>Answer Choices</label>
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns:
+                              'repeat(auto-fit, minmax(180px, 1fr))',
+                            gap: '12px',
+                            marginTop: '10px',
+                            maxWidth: '520px'
+                          }}
                         >
-                          <option value="true">True</option>
-                          <option value="false">False</option>
-                        </select>
+                          {[
+                            ['true', 'True'],
+                            ['false', 'False']
+                          ].map(([value, label]) => (
+                            <label
+                              key={value}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '14px 16px',
+                                border:
+                                  question.correct_answer === value
+                                    ? '2px solid #6b35c0'
+                                    : '1px solid #dfe2ea',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                background:
+                                  question.correct_answer === value
+                                    ? '#f7f2ff'
+                                    : 'white',
+                                fontWeight: '700'
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name={`true-false-${index}`}
+                                value={value}
+                                checked={
+                                  question.correct_answer === value
+                                }
+                                onChange={(event) =>
+                                  updateQuestion(
+                                    index,
+                                    'correct_answer',
+                                    event.target.value
+                                  )
+                                }
+                                disabled={savingQuiz}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+
+                        <p
+                          style={{
+                            marginTop: '8px',
+                            marginBottom: 0,
+                            color: '#6b7280',
+                            fontSize: '14px'
+                          }}
+                        >
+                          Select the answer that is correct.
+                        </p>
                       </div>
                     )}
 
                     {question.question_type === 'fill_blank' && (
-                      <div
-                        style={{
-                          maxWidth: '420px',
-                          marginTop: '14px'
-                        }}
-                      >
-                        <label>Correct Answer</label>
-                        <input
-                          type="text"
-                          value={question.correct_answer}
-                          onChange={(event) =>
-                            updateQuestion(
-                              index,
-                              'correct_answer',
-                              event.target.value
-                            )
-                          }
-                          placeholder="Example: Bethlehem"
-                          required
-                          disabled={savingQuiz}
-                          style={{ width: '100%' }}
-                        />
+                      <div style={{ marginTop: '16px' }}>
+                        <label>Answer to Fill in the Blank</label>
+
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            padding: '16px',
+                            border: '1px solid #e7e7ef',
+                            borderRadius: '12px',
+                            background: '#fafafa',
+                            maxWidth: '620px'
+                          }}
+                        >
+                          <p
+                            style={{
+                              marginTop: 0,
+                              marginBottom: '10px',
+                              color: '#6b7280',
+                              fontSize: '14px'
+                            }}
+                          >
+                            Type the answer that belongs in the blank.
+                          </p>
+
+                          <input
+                            type="text"
+                            value={question.correct_answer}
+                            onChange={(event) =>
+                              updateQuestion(
+                                index,
+                                'correct_answer',
+                                event.target.value
+                              )
+                            }
+                            placeholder="Type the answer here..."
+                            required
+                            disabled={savingQuiz}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
                       </div>
                     )}
 
