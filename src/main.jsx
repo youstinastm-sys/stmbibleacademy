@@ -271,6 +271,10 @@ function DashboardShell({ profile }) {
         return <ServantDashboard profile={profile} />
       }
 
+      if (activePage === 'Quick Entry') {
+        return <ServantQuickEntry profile={profile} />
+      }
+
       return (
         <ComingSoon
           title={activePage}
@@ -766,6 +770,688 @@ function ServantDashboard({ profile }) {
     </>
   )
 }
+
+
+function ServantQuickEntry({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [students, setStudents] = useState([])
+  const [date, setDate] = useState(today)
+  const [entries, setEntries] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [loadingRecords, setLoadingRecords] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadAssignedClass()
+  }, [])
+
+  useEffect(() => {
+    if (classId && students.length && date) {
+      loadExistingRecords()
+    }
+  }, [classId, students.length, date])
+
+  function blankEntry() {
+    return {
+      present: false,
+      homework: false,
+      memoryVerse: false,
+      physicalBible: false,
+      participation: 0,
+      bonusPoints: 0,
+      bonusReason: ''
+    }
+  }
+
+  async function loadAssignedClass() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      console.error('Quick Entry assignment error:', assignmentError)
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const [classResult, membershipResult] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('id, name')
+        .eq('id', assignment.class_id)
+        .single(),
+
+      supabase
+        .from('class_members')
+        .select('student_id')
+        .eq('class_id', assignment.class_id)
+    ])
+
+    if (classResult.data) {
+      setClassName(classResult.data.name)
+    }
+
+    if (membershipResult.error) {
+      console.error(
+        'Quick Entry memberships error:',
+        membershipResult.error
+      )
+      setMessage(membershipResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const studentIds =
+      membershipResult.data?.map((item) => item.student_id) || []
+
+    if (!studentIds.length) {
+      setStudents([])
+      setEntries({})
+      setLoading(false)
+      return
+    }
+
+    const { data: studentProfiles, error: studentsError } =
+      await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, grade')
+        .in('id', studentIds)
+        .eq('active', true)
+        .order('first_name')
+
+    if (studentsError) {
+      console.error('Quick Entry students error:', studentsError)
+      setMessage(studentsError.message)
+      setLoading(false)
+      return
+    }
+
+    const roster = studentProfiles || []
+    setStudents(roster)
+
+    const initialEntries = {}
+    roster.forEach((student) => {
+      initialEntries[student.id] = blankEntry()
+    })
+    setEntries(initialEntries)
+
+    setLoading(false)
+  }
+
+  async function loadExistingRecords() {
+    setLoadingRecords(true)
+    setMessage('')
+
+    const studentIds = students.map((student) => student.id)
+
+    if (!studentIds.length) {
+      setLoadingRecords(false)
+      return
+    }
+
+    const [
+      attendanceResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('student_id, present')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('homework')
+        .select('student_id, completed')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('memory_verses')
+        .select('student_id, completed')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('physical_bible')
+        .select('student_id, brought_bible')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('participation')
+        .select('student_id, points')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, points, reason')
+        .eq('class_id', classId)
+        .eq('bible_study_date', date)
+        .in('student_id', studentIds)
+    ])
+
+    const results = [
+      attendanceResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult
+    ]
+
+    const firstError = results.find((result) => result.error)?.error
+    if (firstError) {
+      console.error('Quick Entry load records error:', firstError)
+      setMessage(firstError.message)
+      setLoadingRecords(false)
+      return
+    }
+
+    const next = {}
+    students.forEach((student) => {
+      next[student.id] = blankEntry()
+    })
+
+    attendanceResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].present = record.present === true
+      }
+    })
+
+    homeworkResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].homework =
+          record.completed === true
+      }
+    })
+
+    verseResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].memoryVerse =
+          record.completed === true
+      }
+    })
+
+    bibleResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].physicalBible =
+          record.brought_bible === true
+      }
+    })
+
+    participationResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].participation =
+          Number(record.points) || 0
+      }
+    })
+
+    bonusResult.data?.forEach((record) => {
+      if (next[record.student_id]) {
+        next[record.student_id].bonusPoints =
+          Number(record.points) || 0
+        next[record.student_id].bonusReason =
+          record.reason || ''
+      }
+    })
+
+    setEntries(next)
+    setLoadingRecords(false)
+  }
+
+  function updateEntry(studentId, field, value) {
+    setEntries((current) => ({
+      ...current,
+      [studentId]: {
+        ...(current[studentId] || blankEntry()),
+        [field]: value
+      }
+    }))
+    setMessage('')
+  }
+
+  function markEveryone(field, value) {
+    setEntries((current) => {
+      const next = { ...current }
+
+      students.forEach((student) => {
+        next[student.id] = {
+          ...(next[student.id] || blankEntry()),
+          [field]: value
+        }
+      })
+
+      return next
+    })
+    setMessage('')
+  }
+
+  async function replaceRecord(table, studentId, payload) {
+    const { error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .eq('student_id', studentId)
+      .eq('class_id', classId)
+      .eq('bible_study_date', date)
+
+    if (deleteError) throw deleteError
+
+    const { error: insertError } = await supabase
+      .from(table)
+      .insert({
+        student_id: studentId,
+        class_id: classId,
+        bible_study_date: date,
+        recorded_by: profile.id,
+        ...payload
+      })
+
+    if (insertError) throw insertError
+  }
+
+  async function saveAll() {
+    if (!classId || !students.length) return
+
+    setSaving(true)
+    setMessage('')
+
+    try {
+      for (const student of students) {
+        const entry = entries[student.id] || blankEntry()
+
+        await replaceRecord('attendance', student.id, {
+          present: entry.present
+        })
+
+        await replaceRecord('homework', student.id, {
+          completed: entry.homework
+        })
+
+        await replaceRecord('memory_verses', student.id, {
+          completed: entry.memoryVerse
+        })
+
+        await replaceRecord('physical_bible', student.id, {
+          brought_bible: entry.physicalBible
+        })
+
+        await replaceRecord('participation', student.id, {
+          points: Number(entry.participation) || 0
+        })
+
+        // Keep at most one Quick Entry bonus record per student/date.
+        const { error: bonusDeleteError } = await supabase
+          .from('bonus_points')
+          .delete()
+          .eq('student_id', student.id)
+          .eq('class_id', classId)
+          .eq('bible_study_date', date)
+
+        if (bonusDeleteError) throw bonusDeleteError
+
+        const bonusPoints = Number(entry.bonusPoints) || 0
+        const bonusReason = entry.bonusReason.trim()
+
+        if (bonusPoints !== 0 || bonusReason) {
+          const { error: bonusInsertError } = await supabase
+            .from('bonus_points')
+            .insert({
+              student_id: student.id,
+              class_id: classId,
+              bible_study_date: date,
+              points: bonusPoints,
+              reason: bonusReason || 'Bonus',
+              recorded_by: profile.id
+            })
+
+          if (bonusInsertError) throw bonusInsertError
+        }
+      }
+
+      setMessage('Quick Entry saved successfully.')
+      await loadExistingRecords()
+    } catch (error) {
+      console.error('Quick Entry save error:', error)
+      setMessage(
+        error?.message ||
+          'Could not save Quick Entry. Please try again.'
+      )
+    }
+
+    setSaving(false)
+  }
+
+  const checkboxStyle = {
+    width: '20px',
+    height: '20px',
+    cursor: 'pointer'
+  }
+
+  const numberInputStyle = {
+    width: '76px',
+    padding: '8px 9px',
+    borderRadius: '9px',
+    border: '1px solid #dfe2ea'
+  }
+
+  return (
+    <>
+      <DashboardHeader
+        title="Quick Entry"
+        subtitle={`${className} • Record Friday progress in one place`}
+      />
+
+      <section
+        className="dashboard-card"
+        style={{ marginTop: '24px' }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '16px',
+            alignItems: 'end',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div>
+            <label>Bible Study Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              disabled={saving}
+              style={{ minWidth: '190px' }}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => markEveryone('present', true)}
+              disabled={saving || !students.length}
+              style={{
+                border: '1px solid #dfe2ea',
+                background: 'white',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: '700'
+              }}
+            >
+              Everyone Present
+            </button>
+
+            <button
+              type="button"
+              onClick={() => markEveryone('homework', true)}
+              disabled={saving || !students.length}
+              style={{
+                border: '1px solid #dfe2ea',
+                background: 'white',
+                padding: '9px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: '700'
+              }}
+            >
+              All Homework
+            </button>
+          </div>
+        </div>
+
+        {message && (
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 14px',
+              borderRadius: '12px',
+              background: message.includes('successfully')
+                ? '#ecfdf3'
+                : '#fef3f2',
+              color: message.includes('successfully')
+                ? '#087257'
+                : '#b42318',
+              fontWeight: '600'
+            }}
+          >
+            {message}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-card">
+        <h2>Friday Entry</h2>
+
+        {loading || loadingRecords ? (
+          <p>Loading class records...</p>
+        ) : !students.length ? (
+          <p>No students are assigned to this class yet.</p>
+        ) : (
+          <>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Present</th>
+                    <th>Homework</th>
+                    <th>Memory Verse</th>
+                    <th>Physical Bible</th>
+                    <th>Participation</th>
+                    <th>Bonus</th>
+                    <th>Bonus Reason</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {students.map((student) => {
+                    const entry =
+                      entries[student.id] || blankEntry()
+
+                    return (
+                      <tr key={student.id}>
+                        <td>
+                          <strong>
+                            {student.first_name}{' '}
+                            {student.last_name}
+                          </strong>
+                          <div
+                            style={{
+                              color: '#8a8f9c',
+                              fontSize: '12px',
+                              marginTop: '3px'
+                            }}
+                          >
+                            {student.grade || '—'}
+                          </div>
+                        </td>
+
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={entry.present}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'present',
+                                event.target.checked
+                              )
+                            }
+                            disabled={saving}
+                            style={checkboxStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={entry.homework}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'homework',
+                                event.target.checked
+                              )
+                            }
+                            disabled={saving}
+                            style={checkboxStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={entry.memoryVerse}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'memoryVerse',
+                                event.target.checked
+                              )
+                            }
+                            disabled={saving}
+                            style={checkboxStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={entry.physicalBible}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'physicalBible',
+                                event.target.checked
+                              )
+                            }
+                            disabled={saving}
+                            style={checkboxStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={entry.participation}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'participation',
+                                event.target.value
+                              )
+                            }
+                            disabled={saving}
+                            style={numberInputStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="number"
+                            step="1"
+                            value={entry.bonusPoints}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'bonusPoints',
+                                event.target.value
+                              )
+                            }
+                            disabled={saving}
+                            style={numberInputStyle}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="text"
+                            value={entry.bonusReason}
+                            onChange={(event) =>
+                              updateEntry(
+                                student.id,
+                                'bonusReason',
+                                event.target.value
+                              )
+                            }
+                            placeholder="Optional"
+                            disabled={saving}
+                            style={{
+                              minWidth: '160px',
+                              padding: '8px 9px'
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '20px'
+              }}
+            >
+              <button
+                className="primary-button small-button"
+                type="button"
+                onClick={saveAll}
+                disabled={saving || loadingRecords}
+                style={{ width: 'auto' }}
+              >
+                {saving ? 'Saving...' : 'Save All'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </>
+  )
+}
+
 
 function AdminDashboard() {
   const [classes, setClasses] = useState([])
