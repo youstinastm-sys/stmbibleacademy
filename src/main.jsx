@@ -260,8 +260,10 @@ function Login() {
         <div
           className="login-card"
           style={{
-            maxWidth: 'none',
-            margin: 0,
+            width: '100%',
+            maxWidth: '460px',
+            margin: '0 auto',
+            boxSizing: 'border-box',
             borderRadius: '22px',
             border: '1px solid #e8e3f3',
             boxShadow: '0 18px 50px rgba(50, 33, 92, 0.10)',
