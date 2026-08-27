@@ -5134,6 +5134,8 @@ function ServantMyClass({ profile }) {
   const [classInfo, setClassInfo] = useState(null)
   const [students, setStudents] = useState([])
   const [studentStats, setStudentStats] = useState({})
+  const [studentActivity, setStudentActivity] = useState({})
+  const [selectedStudent, setSelectedStudent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
 
@@ -5171,6 +5173,7 @@ function ServantMyClass({ profile }) {
         .select('*')
         .eq('id', assignment.class_id)
         .single(),
+
       supabase
         .from('class_members')
         .select('student_id')
@@ -5194,6 +5197,7 @@ function ServantMyClass({ profile }) {
     if (!studentIds.length) {
       setStudents([])
       setStudentStats({})
+      setStudentActivity({})
       setLoading(false)
       return
     }
@@ -5213,22 +5217,88 @@ function ServantMyClass({ profile }) {
 
     const activeStudents = roster || []
     setStudents(activeStudents)
+
     const ids = activeStudents.map((student) => student.id)
 
-    const [attendanceResult, readingResult, homeworkResult, verseResult, bibleResult, participationResult, bonusResult, rulesResult] =
-      await Promise.all([
-        supabase.from('attendance').select('student_id, present').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('daily_reading').select('student_id, completed').in('student_id', ids),
-        supabase.from('homework').select('student_id, completed').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('memory_verses').select('student_id, completed').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('physical_bible').select('student_id, brought_bible').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('participation').select('student_id, points').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('bonus_points').select('student_id, points').eq('class_id', assignment.class_id).in('student_id', ids),
-        supabase.from('point_rules').select('category, points')
-      ])
+    const [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult,
+      submissionResult
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('student_id, bible_study_date, present')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
 
-    const results = [attendanceResult, readingResult, homeworkResult, verseResult, bibleResult, participationResult, bonusResult, rulesResult]
-    const firstError = results.find((result) => result.error)?.error
+      supabase
+        .from('daily_reading')
+        .select('student_id, reading_date, completed')
+        .in('student_id', ids),
+
+      supabase
+        .from('homework')
+        .select('student_id, bible_study_date, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+
+      supabase
+        .from('memory_verses')
+        .select('student_id, bible_study_date, completed')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+
+      supabase
+        .from('physical_bible')
+        .select('student_id, bible_study_date, brought_bible')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+
+      supabase
+        .from('participation')
+        .select('student_id, bible_study_date, points')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+
+      supabase
+        .from('bonus_points')
+        .select('student_id, bible_study_date, points, reason')
+        .eq('class_id', assignment.class_id)
+        .in('student_id', ids),
+
+      supabase
+        .from('point_rules')
+        .select('category, points'),
+
+      supabase
+        .from('homework_submissions')
+        .select(
+          'id, student_id, quiz_id, score, total_questions, percentage, submitted_at'
+        )
+        .in('student_id', ids)
+        .order('submitted_at', { ascending: false })
+    ])
+
+    const results = [
+      attendanceResult,
+      readingResult,
+      homeworkResult,
+      verseResult,
+      bibleResult,
+      participationResult,
+      bonusResult,
+      rulesResult,
+      submissionResult
+    ]
+
+    const firstError =
+      results.find((result) => result.error)?.error
 
     if (firstError) {
       setMessage(firstError.message)
@@ -5242,9 +5312,13 @@ function ServantMyClass({ profile }) {
     })
 
     const stats = {}
+    const activity = {}
+
     activeStudents.forEach((student) => {
       const filter = (result) =>
-        (result.data || []).filter((r) => r.student_id === student.id)
+        (result.data || []).filter(
+          (record) => record.student_id === student.id
+        )
 
       const attendance = filter(attendanceResult)
       const reading = filter(readingResult)
@@ -5253,19 +5327,49 @@ function ServantMyClass({ profile }) {
       const bibles = filter(bibleResult)
       const participation = filter(participationResult)
       const bonuses = filter(bonusResult)
+      const submissions = filter(submissionResult)
 
       const countTrue = (items, field) =>
         items.filter((item) => item[field] === true).length
+
       const percent = (items, field) =>
-        items.length ? Math.round((countTrue(items, field) / items.length) * 100) : 0
+        items.length
+          ? Math.round(
+              (countTrue(items, field) / items.length) * 100
+            )
+          : 0
 
       const attendanceDone = countTrue(attendance, 'present')
       const readingDone = countTrue(reading, 'completed')
       const homeworkDone = countTrue(homework, 'completed')
       const verseDone = countTrue(verses, 'completed')
       const bibleDone = countTrue(bibles, 'brought_bible')
-      const participationPoints = participation.reduce((sum, r) => sum + (Number(r.points) || 0), 0)
-      const bonusPoints = bonuses.reduce((sum, r) => sum + (Number(r.points) || 0), 0)
+
+      const participationPoints = participation.reduce(
+        (sum, record) =>
+          sum + (Number(record.points) || 0),
+        0
+      )
+
+      const bonusPoints = bonuses.reduce(
+        (sum, record) =>
+          sum + (Number(record.points) || 0),
+        0
+      )
+
+      const perfectScores = submissions.filter(
+        (submission) =>
+          Number(submission.percentage) >= 100
+      ).length
+
+      const totalPoints =
+        attendanceDone * (rules.attendance || 0) +
+        readingDone * (rules.daily_reading || 0) +
+        homeworkDone * (rules.homework || 0) +
+        verseDone * (rules.memory_verse || 0) +
+        bibleDone * (rules.physical_bible || 0) +
+        participationPoints +
+        bonusPoints
 
       stats[student.id] = {
         attendance: percent(attendance, 'present'),
@@ -5273,89 +5377,770 @@ function ServantMyClass({ profile }) {
         homework: percent(homework, 'completed'),
         verse: percent(verses, 'completed'),
         physicalBible: percent(bibles, 'brought_bible'),
-        points:
-          attendanceDone * (rules.attendance || 0) +
-          readingDone * (rules.daily_reading || 0) +
-          homeworkDone * (rules.homework || 0) +
-          verseDone * (rules.memory_verse || 0) +
-          bibleDone * (rules.physical_bible || 0) +
-          participationPoints +
-          bonusPoints
+        points: totalPoints,
+        attendanceDone,
+        attendanceTotal: attendance.length,
+        readingDone,
+        readingTotal: reading.length,
+        homeworkDone,
+        homeworkTotal: homework.length,
+        verseDone,
+        verseTotal: verses.length,
+        bibleDone,
+        bibleTotal: bibles.length,
+        participationPoints,
+        bonusPoints,
+        perfectScores,
+        quizCount: submissions.length
       }
+
+      const events = []
+
+      attendance.forEach((record) => {
+        events.push({
+          date: record.bible_study_date,
+          type: 'Attendance',
+          icon: '⛪',
+          text: record.present ? 'Present' : 'Absent',
+          success: record.present === true
+        })
+      })
+
+      reading.forEach((record) => {
+        if (record.completed) {
+          events.push({
+            date: record.reading_date,
+            type: 'Daily Reading',
+            icon: '📖',
+            text: 'Completed daily reading',
+            success: true
+          })
+        }
+      })
+
+      homework.forEach((record) => {
+        events.push({
+          date: record.bible_study_date,
+          type: 'Homework',
+          icon: '✏️',
+          text: record.completed
+            ? 'Homework completed'
+            : 'Homework not completed',
+          success: record.completed === true
+        })
+      })
+
+      verses.forEach((record) => {
+        events.push({
+          date: record.bible_study_date,
+          type: 'Memory Verse',
+          icon: '🧠',
+          text: record.completed
+            ? 'Memory verse recited'
+            : 'Memory verse not recited',
+          success: record.completed === true
+        })
+      })
+
+      bibles.forEach((record) => {
+        events.push({
+          date: record.bible_study_date,
+          type: 'Physical Bible',
+          icon: '📕',
+          text: record.brought_bible
+            ? 'Brought physical Bible'
+            : 'Did not bring physical Bible',
+          success: record.brought_bible === true
+        })
+      })
+
+      submissions.forEach((record) => {
+        events.push({
+          date: record.submitted_at
+            ? record.submitted_at.slice(0, 10)
+            : '',
+          type: 'Quiz',
+          icon: '🏆',
+          text: `Quiz score: ${Math.round(
+            Number(record.percentage) || 0
+          )}%`,
+          success: Number(record.percentage) >= 70
+        })
+      })
+
+      bonuses.forEach((record) => {
+        events.push({
+          date: record.bible_study_date,
+          type: 'Bonus',
+          icon: '⭐',
+          text: `+${Number(record.points) || 0} bonus points${
+            record.reason ? ` • ${record.reason}` : ''
+          }`,
+          success: true
+        })
+      })
+
+      activity[student.id] = events
+        .filter((event) => event.date)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 12)
     })
 
     setStudentStats(stats)
+    setStudentActivity(activity)
     setLoading(false)
   }
 
   const average = (field) =>
     students.length
-      ? Math.round(students.reduce((sum, s) => sum + (studentStats[s.id]?.[field] || 0), 0) / students.length)
+      ? Math.round(
+          students.reduce(
+            (sum, student) =>
+              sum +
+              (studentStats[student.id]?.[field] || 0),
+            0
+          ) / students.length
+        )
       : 0
 
   const classAttendance = average('attendance')
   const classReading = average('reading')
   const classHomework = average('homework')
-  const totalPoints = students.reduce((sum, s) => sum + (studentStats[s.id]?.points || 0), 0)
+
+  const totalPoints = students.reduce(
+    (sum, student) =>
+      sum + (studentStats[student.id]?.points || 0),
+    0
+  )
+
+  function prettyDate(dateString) {
+    if (!dateString) return '—'
+
+    return new Date(`${dateString}T12:00:00`).toLocaleDateString(
+      'en-US',
+      {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }
+    )
+  }
+
+  function getAchievementLevel(value, goals) {
+    let level = 0
+
+    goals.forEach((goal, index) => {
+      if (value >= goal) level = index + 1
+    })
+
+    return level
+  }
+
+  if (selectedStudent) {
+    const stats = studentStats[selectedStudent.id] || {}
+    const activities =
+      studentActivity[selectedStudent.id] || []
+
+    const achievementTracks = [
+      {
+        emoji: '💎',
+        label: 'Bible Reader',
+        value: stats.readingDone || 0,
+        goals: [1, 10, 25, 50, 100]
+      },
+      {
+        emoji: '✏️',
+        label: 'Homework Hero',
+        value: stats.homeworkDone || 0,
+        goals: [1, 5, 10, 20, 30]
+      },
+      {
+        emoji: '🏆',
+        label: 'Quiz Master',
+        value: stats.perfectScores || 0,
+        goals: [1, 3, 5, 10, 20]
+      },
+      {
+        emoji: '🧠',
+        label: 'Word in My Heart',
+        value: stats.verseDone || 0,
+        goals: [1, 5, 10, 20, 30]
+      },
+      {
+        emoji: '⛪',
+        label: 'Faithful Friday',
+        value: stats.attendanceDone || 0,
+        goals: [1, 5, 10, 20, 30]
+      },
+      {
+        emoji: '📕',
+        label: 'Bible Ready',
+        value: stats.bibleDone || 0,
+        goals: [1, 5, 10, 20, 30]
+      },
+      {
+        emoji: '⭐',
+        label: 'Points Champion',
+        value: stats.points || 0,
+        goals: [25, 50, 100, 250, 500]
+      }
+    ]
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setSelectedStudent(null)}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            padding: 0,
+            marginBottom: '18px',
+            cursor: 'pointer',
+            color: '#6b35c0',
+            fontWeight: '700'
+          }}
+        >
+          <ArrowLeft size={18} />
+          Back to My Class
+        </button>
+
+        <DashboardHeader
+          title={`${selectedStudent.first_name} ${selectedStudent.last_name}`}
+          subtitle={`${selectedStudent.grade || ''}${
+            selectedStudent.grade ? ' • ' : ''
+          }${classInfo?.name || 'Bible Study Class'}`}
+        />
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<Trophy />}
+            label="Total Points"
+            value={stats.points || 0}
+            helper="All points earned"
+          />
+
+          <StatCard
+            icon={<CheckCircle2 />}
+            label="Attendance"
+            value={`${stats.attendance || 0}%`}
+            helper={`${stats.attendanceDone || 0}/${
+              stats.attendanceTotal || 0
+            } present`}
+          />
+
+          <StatCard
+            icon={<BookOpen />}
+            label="Daily Reading"
+            value={`${stats.reading || 0}%`}
+            helper={`${stats.readingDone || 0} completed`}
+          />
+
+          <StatCard
+            icon={<ClipboardCheck />}
+            label="Homework"
+            value={`${stats.homework || 0}%`}
+            helper={`${stats.homeworkDone || 0}/${
+              stats.homeworkTotal || 0
+            } completed`}
+          />
+        </div>
+
+        <section className="dashboard-card">
+          <h2>Progress Overview</h2>
+
+          <div className="progress-grid">
+            <ProgressCircle
+              label="Attendance"
+              value={stats.attendance || 0}
+              emoji="⛪"
+            />
+            <ProgressCircle
+              label="Daily Reading"
+              value={stats.reading || 0}
+              emoji="📖"
+            />
+            <ProgressCircle
+              label="Homework"
+              value={stats.homework || 0}
+              emoji="✏️"
+            />
+            <ProgressCircle
+              label="Memory Verse"
+              value={stats.verse || 0}
+              emoji="🧠"
+            />
+            <ProgressCircle
+              label="Physical Bible"
+              value={stats.physicalBible || 0}
+              emoji="📕"
+            />
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <h2>Achievements</h2>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(210px, 1fr))',
+              gap: '14px',
+              marginTop: '18px'
+            }}
+          >
+            {achievementTracks.map((track) => {
+              const level = getAchievementLevel(
+                track.value,
+                track.goals
+              )
+
+              const nextGoal =
+                level < track.goals.length
+                  ? track.goals[level]
+                  : null
+
+              return (
+                <div
+                  key={track.label}
+                  style={{
+                    border: '1px solid #ececf2',
+                    borderRadius: '14px',
+                    padding: '16px',
+                    background:
+                      level > 0 ? '#faf8ff' : 'white'
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '28px',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    {track.emoji}
+                  </div>
+
+                  <strong>{track.label}</strong>
+
+                  <div
+                    style={{
+                      marginTop: '5px',
+                      color: '#6b35c0',
+                      fontWeight: '800'
+                    }}
+                  >
+                    {level > 0
+                      ? `Level ${level}`
+                      : 'Not unlocked yet'}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '5px',
+                      color: '#6b7280',
+                      fontSize: '13px'
+                    }}
+                  >
+                    {nextGoal
+                      ? `${track.value}/${nextGoal} toward next level`
+                      : 'Highest level unlocked'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <h2>Points Breakdown</h2>
+
+          <div className="table-wrapper">
+            <table>
+              <tbody>
+                <tr>
+                  <td>Participation</td>
+                  <td>
+                    <strong>
+                      {stats.participationPoints || 0} pts
+                    </strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bonus</td>
+                  <td>
+                    <strong>
+                      {stats.bonusPoints || 0} pts
+                    </strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Perfect Quiz Scores</td>
+                  <td>
+                    <strong>
+                      {stats.perfectScores || 0}
+                    </strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Quizzes Submitted</td>
+                  <td>
+                    <strong>{stats.quizCount || 0}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <h2>Recent Activity</h2>
+
+          {activities.length ? (
+            <div
+              style={{
+                display: 'grid',
+                gap: '10px',
+                marginTop: '16px'
+              }}
+            >
+              {activities.map((activity, index) => (
+                <div
+                  key={`${activity.date}-${activity.type}-${index}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    border: '1px solid #ececf2',
+                    borderRadius: '12px',
+                    padding: '12px 14px'
+                  }}
+                >
+                  <span style={{ fontSize: '22px' }}>
+                    {activity.icon}
+                  </span>
+
+                  <div style={{ flex: 1 }}>
+                    <strong>{activity.type}</strong>
+                    <div
+                      style={{
+                        color: '#6b7280',
+                        fontSize: '13px',
+                        marginTop: '2px'
+                      }}
+                    >
+                      {activity.text}
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      color: '#8a8f9c',
+                      fontSize: '12px'
+                    }}
+                  >
+                    {prettyDate(activity.date)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: '#6b7280' }}>
+              No recent activity yet.
+            </p>
+          )}
+        </section>
+      </>
+    )
+  }
 
   return (
     <>
       <DashboardHeader
         title={classInfo?.name || 'My Class'}
-        subtitle={classInfo?.grade_group ? `${classInfo.grade_group} • Class overview` : 'Your Bible Study class overview'}
+        subtitle={
+          classInfo?.grade_group
+            ? `${classInfo.grade_group} • Class overview`
+            : 'Your Bible Study class overview'
+        }
       />
 
-      {message && <section className="dashboard-card"><p>{message}</p></section>}
+      {message && (
+        <section className="dashboard-card">
+          <p>{message}</p>
+        </section>
+      )}
 
       {loading ? (
-        <section className="dashboard-card"><p>Loading your class...</p></section>
+        <section className="dashboard-card">
+          <p>Loading your class...</p>
+        </section>
       ) : classInfo ? (
         <>
           <div className="stats-grid">
-            <StatCard icon={<Users />} label="Students" value={students.length} helper="Active students" />
-            <StatCard icon={<CheckCircle2 />} label="Attendance" value={`${classAttendance}%`} helper="Class average" />
-            <StatCard icon={<BookOpen />} label="Daily Reading" value={`${classReading}%`} helper="Class average" />
-            <StatCard icon={<Trophy />} label="Class Points" value={totalPoints} helper="Total earned" />
+            <StatCard
+              icon={<Users />}
+              label="Students"
+              value={students.length}
+              helper="Active students"
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Attendance"
+              value={`${classAttendance}%`}
+              helper="Class average"
+            />
+
+            <StatCard
+              icon={<BookOpen />}
+              label="Daily Reading"
+              value={`${classReading}%`}
+              helper="Class average"
+            />
+
+            <StatCard
+              icon={<Trophy />}
+              label="Class Points"
+              value={totalPoints}
+              helper="Total earned"
+            />
           </div>
 
           <section className="dashboard-card">
             <h2>Class Progress</h2>
+
             <div className="progress-grid">
-              <ProgressCircle label="Attendance" value={classAttendance} emoji="⛪" />
-              <ProgressCircle label="Daily Reading" value={classReading} emoji="📖" />
-              <ProgressCircle label="Homework" value={classHomework} emoji="✏️" />
+              <ProgressCircle
+                label="Attendance"
+                value={classAttendance}
+                emoji="⛪"
+              />
+              <ProgressCircle
+                label="Daily Reading"
+                value={classReading}
+                emoji="📖"
+              />
+              <ProgressCircle
+                label="Homework"
+                value={classHomework}
+                emoji="✏️"
+              />
             </div>
           </section>
 
           <section className="dashboard-card">
-            <h2>Class Roster</h2>
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student</th><th>Grade</th><th>Attendance</th><th>Reading</th>
-                    <th>Homework</th><th>Memory Verse</th><th>Physical Bible</th><th>Points</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((student) => {
-                    const stats = studentStats[student.id] || {}
-                    return (
-                      <tr key={student.id}>
-                        <td><strong>{student.first_name} {student.last_name}</strong></td>
-                        <td>{student.grade || '—'}</td>
-                        <td>{stats.attendance ?? 0}%</td>
-                        <td>{stats.reading ?? 0}%</td>
-                        <td>{stats.homework ?? 0}%</td>
-                        <td>{stats.verse ?? 0}%</td>
-                        <td>{stats.physicalBible ?? 0}%</td>
-                        <td><strong>{stats.points ?? 0}</strong></td>
-                      </tr>
-                    )
-                  })}
-                  {!students.length && <tr><td colSpan="8">No students are assigned to this class yet.</td></tr>}
-                </tbody>
-              </table>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'end',
+                gap: '16px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '4px' }}>
+                  Students
+                </h2>
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Click a student to open their full progress
+                  profile.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '14px',
+                marginTop: '20px'
+              }}
+            >
+              {students.map((student) => {
+                const stats = studentStats[student.id] || {}
+
+                return (
+                  <button
+                    key={student.id}
+                    type="button"
+                    onClick={() => setSelectedStudent(student)}
+                    style={{
+                      border: '1px solid #e7e7ef',
+                      background: 'white',
+                      borderRadius: '16px',
+                      padding: '17px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      font: 'inherit'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '11px',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '42px',
+                            height: '42px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: '#efe8ff',
+                            color: '#6b35c0',
+                            fontWeight: '800'
+                          }}
+                        >
+                          {student.first_name?.charAt(0) || '?'}
+                        </div>
+
+                        <div>
+                          <strong>
+                            {student.first_name}{' '}
+                            {student.last_name}
+                          </strong>
+                          <div
+                            style={{
+                              color: '#6b7280',
+                              fontSize: '13px',
+                              marginTop: '2px'
+                            }}
+                          >
+                            {student.grade || 'Grade not set'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <ChevronRight
+                        size={19}
+                        color="#6b35c0"
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '9px',
+                        marginTop: '16px'
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: '9px',
+                          borderRadius: '10px',
+                          background: '#fafafa'
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#8a8f9c'
+                          }}
+                        >
+                          POINTS
+                        </div>
+                        <strong>{stats.points || 0}</strong>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '9px',
+                          borderRadius: '10px',
+                          background: '#fafafa'
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#8a8f9c'
+                          }}
+                        >
+                          ATTENDANCE
+                        </div>
+                        <strong>
+                          {stats.attendance || 0}%
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '9px',
+                          borderRadius: '10px',
+                          background: '#fafafa'
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#8a8f9c'
+                          }}
+                        >
+                          READING
+                        </div>
+                        <strong>
+                          {stats.reading || 0}%
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '9px',
+                          borderRadius: '10px',
+                          background: '#fafafa'
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#8a8f9c'
+                          }}
+                        >
+                          HOMEWORK
+                        </div>
+                        <strong>
+                          {stats.homework || 0}%
+                        </strong>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+
+              {!students.length && (
+                <div
+                  style={{
+                    border: '1px solid #ececf2',
+                    borderRadius: '14px',
+                    padding: '20px',
+                    color: '#6b7280'
+                  }}
+                >
+                  No students are assigned to this class yet.
+                </div>
+              )}
             </div>
           </section>
         </>
@@ -5363,8 +6148,6 @@ function ServantMyClass({ profile }) {
     </>
   )
 }
-
-
 
 
 function ServantWeeklyManagement({ profile }) {
