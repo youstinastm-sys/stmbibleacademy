@@ -37,6 +37,7 @@ const navigation = {
   servant: [
     ['Dashboard', LayoutDashboard],
     ['My Class', Users],
+    ['Daily Readings', BookOpen],
     ['Attendance', CheckCircle2],
     ['Quick Entry', ClipboardCheck],
     ['Students', GraduationCap],
@@ -273,6 +274,10 @@ function DashboardShell({ profile }) {
 
       if (activePage === 'My Class') {
         return <ServantMyClass profile={profile} />
+      }
+
+      if (activePage === 'Daily Readings') {
+        return <ServantDailyReadings profile={profile} />
       }
 
       if (activePage === 'Attendance') {
@@ -1340,6 +1345,477 @@ function ServantMyClass({ profile }) {
   )
 }
 
+
+
+
+function ServantDailyReadings({ profile }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [classId, setClassId] = useState(null)
+  const [className, setClassName] = useState('My Bible Study Class')
+  const [readingDate, setReadingDate] = useState(today)
+  const [title, setTitle] = useState('')
+  const [passage, setPassage] = useState('')
+  const [notes, setNotes] = useState('')
+  const [assignments, setAssignments] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    loadAssignedClass()
+  }, [])
+
+  useEffect(() => {
+    if (classId) {
+      loadAssignments()
+    }
+  }, [classId])
+
+  async function loadAssignedClass() {
+    setLoading(true)
+    setMessage('')
+
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from('servant_classes')
+        .select('class_id')
+        .eq('servant_id', profile.id)
+        .limit(1)
+        .maybeSingle()
+
+    if (assignmentError) {
+      setMessage(assignmentError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!assignment) {
+      setMessage('You are not assigned to a class yet.')
+      setLoading(false)
+      return
+    }
+
+    setClassId(assignment.class_id)
+
+    const { data: classRecord, error: classError } =
+      await supabase
+        .from('classes')
+        .select('name')
+        .eq('id', assignment.class_id)
+        .single()
+
+    if (classError) {
+      setMessage(classError.message)
+      setLoading(false)
+      return
+    }
+
+    setClassName(classRecord?.name || 'My Bible Study Class')
+    setLoading(false)
+  }
+
+  async function loadAssignments() {
+    const { data, error } = await supabase
+      .from('reading_assignments')
+      .select(
+        'id, class_id, reading_date, title, passage, notes, created_by, created_at'
+      )
+      .eq('class_id', classId)
+      .order('reading_date', { ascending: true })
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setAssignments(data || [])
+  }
+
+  function clearForm() {
+    setTitle('')
+    setPassage('')
+    setNotes('')
+  }
+
+  async function saveAssignment(event) {
+    event.preventDefault()
+    setSaving(true)
+    setMessage('')
+
+    if (!readingDate || !passage.trim()) {
+      setMessage('Please choose a date and enter the Bible passage.')
+      setSaving(false)
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('reading_assignments')
+      .delete()
+      .eq('class_id', classId)
+      .eq('reading_date', readingDate)
+
+    if (deleteError) {
+      setMessage(deleteError.message)
+      setSaving(false)
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('reading_assignments')
+      .insert({
+        class_id: classId,
+        reading_date: readingDate,
+        title: title.trim() || null,
+        passage: passage.trim(),
+        notes: notes.trim() || null,
+        created_by: profile.id
+      })
+
+    if (insertError) {
+      setMessage(insertError.message)
+      setSaving(false)
+      return
+    }
+
+    setMessage('Daily reading assigned successfully.')
+    clearForm()
+    await loadAssignments()
+    setSaving(false)
+  }
+
+  function editAssignment(assignment) {
+    setReadingDate(assignment.reading_date)
+    setTitle(assignment.title || '')
+    setPassage(assignment.passage || '')
+    setNotes(assignment.notes || '')
+    setMessage('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function deleteAssignment(assignmentId) {
+    const confirmed = window.confirm(
+      'Delete this daily reading assignment?'
+    )
+
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('reading_assignments')
+      .delete()
+      .eq('id', assignmentId)
+      .eq('class_id', classId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage('Daily reading deleted.')
+    await loadAssignments()
+  }
+
+  const upcomingAssignments = assignments.filter(
+    (assignment) => assignment.reading_date >= today
+  )
+
+  const pastAssignments = assignments
+    .filter(
+      (assignment) => assignment.reading_date < today
+    )
+    .sort((a, b) =>
+      b.reading_date.localeCompare(a.reading_date)
+    )
+
+  return (
+    <>
+      <DashboardHeader
+        title="Daily Readings"
+        subtitle={`${className} • Assign Bible readings to your students`}
+      />
+
+      {message && (
+        <div
+          style={{
+            marginTop: '20px',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            background: message.includes('successfully')
+              ? '#ecfdf3'
+              : '#fef3f2',
+            color: message.includes('successfully')
+              ? '#087257'
+              : '#b42318',
+            fontWeight: '600'
+          }}
+        >
+          {message}
+        </div>
+      )}
+
+      {loading ? (
+        <section className="dashboard-card">
+          <p>Loading your class...</p>
+        </section>
+      ) : (
+        <>
+          <section
+            className="dashboard-card"
+            style={{ marginTop: '24px' }}
+          >
+            <h2>Assign a Reading</h2>
+
+            <p
+              style={{
+                color: '#6b7280',
+                marginTop: '-8px',
+                marginBottom: '22px'
+              }}
+            >
+              Assign one Bible reading per day. Saving the same
+              date again will update that day's assignment.
+            </p>
+
+            <form onSubmit={saveAssignment}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px'
+                }}
+              >
+                <div>
+                  <label>Reading Date</label>
+                  <input
+                    type="date"
+                    value={readingDate}
+                    onChange={(event) =>
+                      setReadingDate(event.target.value)
+                    }
+                    required
+                    disabled={saving}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label>Title / Theme</label>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(event) =>
+                      setTitle(event.target.value)
+                    }
+                    placeholder="Example: God Creates the World"
+                    disabled={saving}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    gridColumn: '1 / -1'
+                  }}
+                >
+                  <label>Bible Passage</label>
+                  <input
+                    type="text"
+                    value={passage}
+                    onChange={(event) =>
+                      setPassage(event.target.value)
+                    }
+                    placeholder="Example: Genesis 1:1-31"
+                    required
+                    disabled={saving}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    gridColumn: '1 / -1'
+                  }}
+                >
+                  <label>Notes for Students</label>
+                  <textarea
+                    value={notes}
+                    onChange={(event) =>
+                      setNotes(event.target.value)
+                    }
+                    placeholder="Optional instructions, focus question, or reminder..."
+                    rows="4"
+                    disabled={saving}
+                    style={{
+                      width: '100%',
+                      resize: 'vertical',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #dfe2ea',
+                      font: 'inherit'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <button
+                className="primary-button small-button"
+                type="submit"
+                disabled={saving || !classId}
+                style={{
+                  width: 'auto',
+                  marginTop: '22px'
+                }}
+              >
+                {saving
+                  ? 'Saving...'
+                  : 'Assign Daily Reading'}
+              </button>
+            </form>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Upcoming Readings</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Title</th>
+                    <th>Passage</th>
+                    <th>Notes</th>
+                    <th></th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {upcomingAssignments.map(
+                    (assignment) => (
+                      <tr key={assignment.id}>
+                        <td>{assignment.reading_date}</td>
+                        <td>{assignment.title || '—'}</td>
+                        <td>
+                          <strong>
+                            {assignment.passage}
+                          </strong>
+                        </td>
+                        <td>{assignment.notes || '—'}</td>
+                        <td>
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '8px',
+                              justifyContent: 'flex-end'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                editAssignment(assignment)
+                              }
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#6b35c0',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                deleteAssignment(
+                                  assignment.id
+                                )
+                              }
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#b42318',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  )}
+
+                  {!upcomingAssignments.length && (
+                    <tr>
+                      <td colSpan="5">
+                        No upcoming readings assigned yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="dashboard-card">
+            <h2>Past Readings</h2>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Title</th>
+                    <th>Passage</th>
+                    <th></th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {pastAssignments.map((assignment) => (
+                    <tr key={assignment.id}>
+                      <td>{assignment.reading_date}</td>
+                      <td>{assignment.title || '—'}</td>
+                      <td>{assignment.passage}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            editAssignment(assignment)
+                          }
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#6b35c0',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Reuse / Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {!pastAssignments.length && (
+                    <tr>
+                      <td colSpan="4">
+                        No past readings yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  )
+}
 
 
 function ServantAttendance({ profile }) {
