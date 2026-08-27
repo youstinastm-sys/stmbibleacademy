@@ -4200,9 +4200,9 @@ function StudentAchievements({ profile }) {
 
         <div
           style={{
-            display: 'flex',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
             gap: '7px',
-            flexWrap: 'wrap',
             marginTop: '18px'
           }}
         >
@@ -4214,24 +4214,45 @@ function StudentAchievements({ profile }) {
                 key={level.name}
                 title={`${level.name}: ${level.goal} ${track.unit}`}
                 style={{
-                  width: '34px',
-                  height: '34px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '12px',
-                  fontWeight: '800',
-                  background: earned
-                    ? '#6b35c0'
-                    : '#f0f0f4',
-                  color: earned ? 'white' : '#8a8f9c',
-                  border: earned
-                    ? '2px solid #6b35c0'
-                    : '2px solid #e2e2e8'
+                  textAlign: 'center',
+                  minWidth: 0
                 }}
               >
-                {earned ? '✓' : index + 1}
+                <div
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                    fontWeight: '800',
+                    background: earned
+                      ? '#6b35c0'
+                      : '#f0f0f4',
+                    color: earned ? 'white' : '#8a8f9c',
+                    border: earned
+                      ? '2px solid #6b35c0'
+                      : '2px solid #e2e2e8',
+                    margin: '0 auto'
+                  }}
+                >
+                  {earned ? '✓' : index + 1}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '5px',
+                    fontSize: '9px',
+                    lineHeight: 1.15,
+                    color: earned ? '#6b35c0' : '#8a8f9c',
+                    fontWeight: earned ? '800' : '600',
+                    overflowWrap: 'anywhere'
+                  }}
+                >
+                  {level.name}
+                </div>
               </div>
             )
           })}
@@ -4290,6 +4311,62 @@ function StudentAchievements({ profile }) {
           </div>
 
           <section className="dashboard-card">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '14px',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  Badge Collection
+                </h2>
+                <p style={{ color: '#6b7280', margin: 0 }}>
+                  You have unlocked {unlockedLevels} of {totalLevels}
+                  achievement levels.
+                </p>
+              </div>
+
+              <strong
+                style={{
+                  fontSize: '24px',
+                  color: '#6b35c0'
+                }}
+              >
+                {Math.round(
+                  (unlockedLevels / Math.max(1, totalLevels)) * 100
+                )}%
+              </strong>
+            </div>
+
+            <div
+              style={{
+                height: '12px',
+                borderRadius: '999px',
+                background: '#ececf2',
+                overflow: 'hidden',
+                marginTop: '18px'
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.round(
+                    (unlockedLevels /
+                      Math.max(1, totalLevels)) *
+                      100
+                  )}%`,
+                  height: '100%',
+                  background: 'var(--accent)',
+                  borderRadius: '999px'
+                }}
+              />
+            </div>
+          </section>
+
+          <section className="dashboard-card">
             <div>
               <h2 style={{ marginBottom: '5px' }}>
                 Your Achievement Tracks
@@ -4300,8 +4377,9 @@ function StudentAchievements({ profile }) {
                   marginTop: 0
                 }}
               >
-                Every track has five levels. Keep going to unlock
-                the next badge!
+                Every track has five levels. Earn badges as you read,
+                attend, complete homework, memorize Scripture, and
+                collect points.
               </p>
             </div>
 
