@@ -342,6 +342,46 @@ function DashboardShell({ profile }) {
   const role = profile.role
   const [activePage, setActivePage] = useState('Dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const isTestStudent =
+    role === 'student' &&
+    profile.first_name?.trim().toLowerCase() === 'test' &&
+    profile.last_name?.trim().toLowerCase() === 'student'
+  const [studentPreviewClasses, setStudentPreviewClasses] = useState([])
+  const [studentPreviewClassId, setStudentPreviewClassId] = useState('')
+
+  useEffect(() => {
+    if (!isTestStudent) return
+
+    async function loadTestStudentClasses() {
+      const { data: memberships } = await supabase
+        .from('class_members')
+        .select('class_id')
+        .eq('student_id', profile.id)
+
+      const ids = (memberships || []).map((item) => item.class_id)
+      if (!ids.length) return
+
+      const { data: classRows } = await supabase
+        .from('classes')
+        .select('id, name, grade_group, active')
+        .in('id', ids)
+        .eq('active', true)
+        .order('name')
+
+      const rows = classRows || []
+      setStudentPreviewClasses(rows)
+
+      if (rows.length) {
+        setStudentPreviewClassId((current) =>
+          rows.some((item) => String(item.id) === String(current))
+            ? current
+            : String(rows[0].id)
+        )
+      }
+    }
+
+    loadTestStudentClasses()
+  }, [isTestStudent, profile.id])
 
   function changePage(label) {
     setActivePage(label)
@@ -421,7 +461,12 @@ function DashboardShell({ profile }) {
 
     if (role === 'student') {
       if (activePage === 'Dashboard') {
-        return <StudentDashboard profile={profile} />
+        return (
+          <StudentDashboard
+            profile={profile}
+            previewClassId={isTestStudent ? studentPreviewClassId : null}
+          />
+        )
       }
 
       if (activePage === 'My Progress') {
@@ -429,15 +474,30 @@ function DashboardShell({ profile }) {
       }
 
       if (activePage === 'Daily Reading') {
-        return <StudentDailyReading profile={profile} />
+        return (
+          <StudentDailyReading
+            profile={profile}
+            previewClassId={isTestStudent ? studentPreviewClassId : null}
+          />
+        )
       }
 
       if (activePage === 'Homework') {
-        return <StudentHomework profile={profile} />
+        return (
+          <StudentHomework
+            profile={profile}
+            previewClassId={isTestStudent ? studentPreviewClassId : null}
+          />
+        )
       }
 
       if (activePage === 'Memory Verses') {
-        return <StudentMemoryVerses profile={profile} />
+        return (
+          <StudentMemoryVerses
+            profile={profile}
+            previewClassId={isTestStudent ? studentPreviewClassId : null}
+          />
+        )
       }
 
       if (activePage === 'Achievements') {
@@ -568,6 +628,61 @@ function DashboardShell({ profile }) {
       </aside>
 
       <main className="dashboard-main">
+        {isTestStudent && studentPreviewClasses.length > 1 && (
+          <section
+            className="dashboard-card"
+            style={{ marginBottom: '20px' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '14px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <strong>Test Student Preview</strong>
+                <div
+                  style={{
+                    color: '#6b7280',
+                    fontSize: '13px',
+                    marginTop: '3px'
+                  }}
+                >
+                  Choose which class you want to preview.
+                </div>
+              </div>
+
+              <select
+                value={studentPreviewClassId}
+                onChange={(event) =>
+                  setStudentPreviewClassId(event.target.value)
+                }
+                style={{
+                  minWidth: '240px',
+                  maxWidth: '100%',
+                  padding: '11px 13px',
+                  borderRadius: '11px',
+                  border: '1px solid #dfe2ea',
+                  background: 'white',
+                  fontWeight: '700'
+                }}
+              >
+                {studentPreviewClasses.map((classItem) => (
+                  <option key={classItem.id} value={classItem.id}>
+                    {classItem.name}
+                    {classItem.grade_group
+                      ? ` • ${classItem.grade_group}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
+        )}
+
         {renderPage()}
       </main>
     </div>
@@ -575,7 +690,7 @@ function DashboardShell({ profile }) {
 }
 
 
-function StudentDashboard({ profile }) {
+function StudentDashboard({ profile, previewClassId = null }) {
   const [stats, setStats] = useState({
     points: 0,
     attendance: 0,
@@ -598,7 +713,7 @@ function StudentDashboard({ profile }) {
 
   useEffect(() => {
     loadDashboard()
-  }, [])
+  }, [previewClassId])
 
   function calculateReadingStreak(records) {
     const completedDates = new Set(
@@ -645,13 +760,22 @@ function StudentDashboard({ profile }) {
     const studentId = profile.id
     const today = new Date().toISOString().slice(0, 10)
 
-    const { data: membership, error: membershipError } =
-      await supabase
+    let membership = previewClassId
+      ? { class_id: Number(previewClassId) }
+      : null
+    let membershipError = null
+
+    if (!membership) {
+      const membershipResult = await supabase
         .from('class_members')
         .select('class_id')
-        .eq('student_id', studentId)
+        .eq('student_id', profile.id)
         .limit(1)
         .maybeSingle()
+
+      membership = membershipResult.data
+      membershipError = membershipResult.error
+    }
 
     if (membershipError) {
       setMessage(membershipError.message)
@@ -678,8 +802,9 @@ function StudentDashboard({ profile }) {
 
       supabase
         .from('daily_reading')
-        .select('reading_date, completed')
+        .select('reading_date, completed, class_id')
         .eq('student_id', studentId)
+        .eq('class_id', classId)
         .order('reading_date', { ascending: false }),
 
       supabase
@@ -1562,7 +1687,7 @@ function StudentMyProgress({ profile }) {
 }
 
 
-function StudentDailyReading({ profile }) {
+function StudentDailyReading({ profile, previewClassId = null }) {
   const today = new Date().toISOString().slice(0, 10)
 
   const emptyGems = {
@@ -1589,19 +1714,28 @@ function StudentDailyReading({ profile }) {
 
   useEffect(() => {
     loadDailyReading()
-  }, [])
+  }, [previewClassId])
 
   async function loadDailyReading() {
     setLoading(true)
     setMessage('')
 
-    const { data: membership, error: membershipError } =
-      await supabase
+    let membership = previewClassId
+      ? { class_id: Number(previewClassId) }
+      : null
+    let membershipError = null
+
+    if (!membership) {
+      const membershipResult = await supabase
         .from('class_members')
         .select('class_id')
         .eq('student_id', profile.id)
         .limit(1)
         .maybeSingle()
+
+      membership = membershipResult.data
+      membershipError = membershipResult.error
+    }
 
     if (membershipError) {
       setMessage(membershipError.message)
@@ -1628,8 +1762,9 @@ function StudentDailyReading({ profile }) {
 
       supabase
         .from('daily_reading')
-        .select('reading_date, completed, gems')
+        .select('reading_date, completed, gems, class_id')
         .eq('student_id', profile.id)
+        .eq('class_id', membership.class_id)
         .order('reading_date', { ascending: false })
     ])
 
@@ -1710,6 +1845,7 @@ function StudentDailyReading({ profile }) {
       .from('daily_reading')
       .delete()
       .eq('student_id', profile.id)
+      .eq('class_id', classId)
       .eq('reading_date', today)
 
     if (deleteError) {
@@ -1722,6 +1858,7 @@ function StudentDailyReading({ profile }) {
       .from('daily_reading')
       .insert({
         student_id: profile.id,
+        class_id: classId,
         reading_date: today,
         completed: true,
         gems
@@ -2211,7 +2348,7 @@ function StudentDailyReading({ profile }) {
   )
 }
 
-function StudentHomework({ profile }) {
+function StudentHomework({ profile, previewClassId = null }) {
   const [classId, setClassId] = useState(null)
   const [quizzes, setQuizzes] = useState([])
   const [submissions, setSubmissions] = useState([])
@@ -2226,19 +2363,28 @@ function StudentHomework({ profile }) {
 
   useEffect(() => {
     loadHomework()
-  }, [])
+  }, [previewClassId])
 
   async function loadHomework() {
     setLoading(true)
     setMessage('')
 
-    const { data: membership, error: membershipError } =
-      await supabase
+    let membership = previewClassId
+      ? { class_id: Number(previewClassId) }
+      : null
+    let membershipError = null
+
+    if (!membership) {
+      const membershipResult = await supabase
         .from('class_members')
         .select('class_id')
         .eq('student_id', profile.id)
         .limit(1)
         .maybeSingle()
+
+      membership = membershipResult.data
+      membershipError = membershipResult.error
+    }
 
     if (membershipError) {
       setMessage(membershipError.message)
@@ -3184,7 +3330,7 @@ function StudentHomework({ profile }) {
 }
 
 
-function StudentMemoryVerses({ profile }) {
+function StudentMemoryVerses({ profile, previewClassId = null }) {
   const today = new Date().toISOString().slice(0, 10)
 
   const [classId, setClassId] = useState(null)
@@ -3195,19 +3341,28 @@ function StudentMemoryVerses({ profile }) {
 
   useEffect(() => {
     loadMemoryVerses()
-  }, [])
+  }, [previewClassId])
 
   async function loadMemoryVerses() {
     setLoading(true)
     setMessage('')
 
-    const { data: membership, error: membershipError } =
-      await supabase
+    let membership = previewClassId
+      ? { class_id: Number(previewClassId) }
+      : null
+    let membershipError = null
+
+    if (!membership) {
+      const membershipResult = await supabase
         .from('class_members')
         .select('class_id')
         .eq('student_id', profile.id)
         .limit(1)
         .maybeSingle()
+
+      membership = membershipResult.data
+      membershipError = membershipResult.error
+    }
 
     if (membershipError) {
       setMessage(membershipError.message)
