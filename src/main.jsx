@@ -7413,8 +7413,7 @@ function ServantDailyReadings({ profile }) {
     setEditingAssignmentId(null)
   }
 
-  async function saveAssignment(event) {
-    event.preventDefault()
+  async function saveAssignment() {
     setSaving(true)
     setMessage('')
 
@@ -7722,7 +7721,9 @@ function ServantDailyReadings({ profile }) {
                 : 'New readings begin locked. Publish them when you are ready for students to see them.'}
             </p>
 
-            <form onSubmit={saveAssignment}>
+            <form
+              onSubmit={(event) => event.preventDefault()}
+            >
               <div
                 style={{
                   display: 'grid',
@@ -7810,9 +7811,14 @@ function ServantDailyReadings({ profile }) {
               >
                 <button
                   className="primary-button small-button"
-                  type="submit"
-                  disabled={saving || !classId}
-                  style={{ width: 'auto' }}
+                  type="button"
+                  onClick={saveAssignment}
+                  disabled={saving}
+                  style={{
+                    width: 'auto',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.65 : 1
+                  }}
                 >
                   {saving
                     ? 'Saving...'
