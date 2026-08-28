@@ -7298,6 +7298,7 @@ function ServantDailyReadings({ profile }) {
   const [title, setTitle] = useState('')
   const [passage, setPassage] = useState('')
   const [notes, setNotes] = useState('')
+  const [editingAssignmentId, setEditingAssignmentId] = useState(null)
 
   const [assignments, setAssignments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -7409,6 +7410,7 @@ function ServantDailyReadings({ profile }) {
     setTitle('')
     setPassage('')
     setNotes('')
+    setEditingAssignmentId(null)
   }
 
   async function saveAssignment(event) {
@@ -7430,21 +7432,41 @@ function ServantDailyReadings({ profile }) {
       return
     }
 
-    const existing = assignments.find(
-      (item) => item.reading_date === readingDate
+    const dateConflict = assignments.find(
+      (item) =>
+        item.reading_date === readingDate &&
+        String(item.id) !== String(editingAssignmentId || '')
     )
 
-    const existingPublished =
-      existing?.published === true
+    if (dateConflict) {
+      setMessage(
+        'There is already a reading assigned for that date. Edit that reading or choose a different date.'
+      )
+      setSaving(false)
+      return
+    }
 
-    const { error: deleteError } = await supabase
-      .from('reading_assignments')
-      .delete()
-      .eq('class_id', classId)
-      .eq('reading_date', readingDate)
+    if (editingAssignmentId) {
+      const { error: updateError } = await supabase
+        .from('reading_assignments')
+        .update({
+          reading_date: readingDate,
+          title: title.trim() || null,
+          passage: passage.trim(),
+          notes: notes.trim() || null
+        })
+        .eq('id', editingAssignmentId)
+        .eq('class_id', classId)
 
-    if (deleteError) {
-      setMessage(deleteError.message)
+      if (updateError) {
+        setMessage(updateError.message)
+        setSaving(false)
+        return
+      }
+
+      setMessage('Daily reading updated successfully.')
+      clearForm()
+      await loadAssignments(classId)
       setSaving(false)
       return
     }
@@ -7457,13 +7479,7 @@ function ServantDailyReadings({ profile }) {
         title: title.trim() || null,
         passage: passage.trim(),
         notes: notes.trim() || null,
-
-        // If editing an existing reading, keep its current
-        // publish status. Brand-new readings begin locked.
-        published: existing
-          ? existingPublished
-          : false,
-
+        published: false,
         created_by: profile.id
       })
 
@@ -7474,9 +7490,7 @@ function ServantDailyReadings({ profile }) {
     }
 
     setMessage(
-      existing
-        ? 'Daily reading updated successfully.'
-        : 'Daily reading assigned successfully. It is locked until you publish it.'
+      'Daily reading assigned successfully. It is locked until you publish it.'
     )
 
     clearForm()
@@ -7485,6 +7499,7 @@ function ServantDailyReadings({ profile }) {
   }
 
   function editAssignment(assignment) {
+    setEditingAssignmentId(assignment.id)
     setReadingDate(assignment.reading_date)
     setTitle(assignment.title || '')
     setPassage(assignment.passage || '')
@@ -7689,7 +7704,11 @@ function ServantDailyReadings({ profile }) {
           </div>
 
           <section className="dashboard-card">
-            <h2>Assign a Reading</h2>
+            <h2>
+              {editingAssignmentId
+                ? 'Edit Reading'
+                : 'Assign a Reading'}
+            </h2>
 
             <p
               style={{
@@ -7698,8 +7717,9 @@ function ServantDailyReadings({ profile }) {
                 marginBottom: '22px'
               }}
             >
-              New readings begin locked. Publish them when you are
-              ready for students to see them.
+              {editingAssignmentId
+                ? 'Change the date, title, passage, or notes, then save your changes.'
+                : 'New readings begin locked. Publish them when you are ready for students to see them.'}
             </p>
 
             <form onSubmit={saveAssignment}>
@@ -7780,19 +7800,47 @@ function ServantDailyReadings({ profile }) {
                 </div>
               </div>
 
-              <button
-                className="primary-button small-button"
-                type="submit"
-                disabled={saving || !classId}
+              <div
                 style={{
-                  width: 'auto',
+                  display: 'flex',
+                  gap: '10px',
+                  flexWrap: 'wrap',
                   marginTop: '22px'
                 }}
               >
-                {saving
-                  ? 'Saving...'
-                  : 'Save Daily Reading'}
-              </button>
+                <button
+                  className="primary-button small-button"
+                  type="submit"
+                  disabled={saving || !classId}
+                  style={{ width: 'auto' }}
+                >
+                  {saving
+                    ? 'Saving...'
+                    : editingAssignmentId
+                      ? 'Save Changes'
+                      : 'Save Daily Reading'}
+                </button>
+
+                {editingAssignmentId && (
+                  <button
+                    type="button"
+                    onClick={clearForm}
+                    disabled={saving}
+                    style={{
+                      width: 'auto',
+                      border: '1px solid #dfe2ea',
+                      background: 'white',
+                      color: '#606575',
+                      borderRadius: '10px',
+                      padding: '10px 14px',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
             </form>
           </section>
 
