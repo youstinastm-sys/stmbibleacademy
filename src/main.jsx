@@ -7135,59 +7135,75 @@ function ServantWeeklyManagement({ profile }) {
 function ServantDailyReadings({ profile }) {
   const today = new Date().toISOString().slice(0, 10)
 
-  const [classId, setClassId] = useState(null)
+  const [assignedClasses, setAssignedClasses] = useState([])
+  const [classId, setClassId] = useState('')
   const [className, setClassName] = useState('My Bible Study Class')
+
   const [readingDate, setReadingDate] = useState(today)
   const [title, setTitle] = useState('')
   const [passage, setPassage] = useState('')
   const [notes, setNotes] = useState('')
+
   const [assignments, setAssignments] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    loadAssignedClass()
+    loadAssignedClasses()
   }, [])
 
   useEffect(() => {
     if (classId) {
-      loadAssignments()
-    }
-  }, [classId])
+      const selected = assignedClasses.find(
+        (item) => String(item.id) === String(classId)
+      )
 
-  async function loadAssignedClass() {
+      setClassName(
+        selected?.name || 'My Bible Study Class'
+      )
+
+      loadAssignments(classId)
+    } else {
+      setAssignments([])
+    }
+  }, [classId, assignedClasses])
+
+  async function loadAssignedClasses() {
     setLoading(true)
     setMessage('')
 
-    const { data: assignment, error: assignmentError } =
+    const { data: links, error: linksError } =
       await supabase
         .from('servant_classes')
         .select('class_id')
         .eq('servant_id', profile.id)
-        .limit(1)
-        .maybeSingle()
 
-    if (assignmentError) {
-      setMessage(assignmentError.message)
+    if (linksError) {
+      setMessage(linksError.message)
       setLoading(false)
       return
     }
 
-    if (!assignment) {
+    const classIds = (links || []).map(
+      (row) => row.class_id
+    )
+
+    if (!classIds.length) {
+      setAssignedClasses([])
+      setClassId('')
       setMessage('You are not assigned to a class yet.')
       setLoading(false)
       return
     }
 
-    setClassId(assignment.class_id)
-
-    const { data: classRecord, error: classError } =
+    const { data: classRows, error: classError } =
       await supabase
         .from('classes')
-        .select('name')
-        .eq('id', assignment.class_id)
-        .single()
+        .select('id, name, grade_group, active')
+        .in('id', classIds)
+        .eq('active', true)
+        .order('name')
 
     if (classError) {
       setMessage(classError.message)
@@ -7195,17 +7211,34 @@ function ServantDailyReadings({ profile }) {
       return
     }
 
-    setClassName(classRecord?.name || 'My Bible Study Class')
+    const rows = classRows || []
+
+    setAssignedClasses(rows)
+
+    if (rows.length) {
+      setClassId((current) => {
+        const stillValid = rows.some(
+          (item) => String(item.id) === String(current)
+        )
+
+        return stillValid
+          ? current
+          : String(rows[0].id)
+      })
+    }
+
     setLoading(false)
   }
 
-  async function loadAssignments() {
+  async function loadAssignments(targetClassId = classId) {
+    if (!targetClassId) return
+
     const { data, error } = await supabase
       .from('reading_assignments')
       .select(
         'id, class_id, reading_date, title, passage, notes, published, created_by, created_at'
       )
-      .eq('class_id', classId)
+      .eq('class_id', targetClassId)
       .order('reading_date', { ascending: true })
 
     if (error) {
@@ -7217,6 +7250,7 @@ function ServantDailyReadings({ profile }) {
   }
 
   function clearForm() {
+    setReadingDate(today)
     setTitle('')
     setPassage('')
     setNotes('')
@@ -7227,11 +7261,26 @@ function ServantDailyReadings({ profile }) {
     setSaving(true)
     setMessage('')
 
-    if (!readingDate || !passage.trim()) {
-      setMessage('Please choose a date and enter the Bible passage.')
+    if (!classId) {
+      setMessage('Choose a class first.')
       setSaving(false)
       return
     }
+
+    if (!readingDate || !passage.trim()) {
+      setMessage(
+        'Please choose a date and enter the Bible passage.'
+      )
+      setSaving(false)
+      return
+    }
+
+    const existing = assignments.find(
+      (item) => item.reading_date === readingDate
+    )
+
+    const existingPublished =
+      existing?.published === true
 
     const { error: deleteError } = await supabase
       .from('reading_assignments')
@@ -7248,12 +7297,18 @@ function ServantDailyReadings({ profile }) {
     const { error: insertError } = await supabase
       .from('reading_assignments')
       .insert({
-        class_id: classId,
+        class_id: Number(classId),
         reading_date: readingDate,
         title: title.trim() || null,
         passage: passage.trim(),
         notes: notes.trim() || null,
-        published: false,
+
+        // If editing an existing reading, keep its current
+        // publish status. Brand-new readings begin locked.
+        published: existing
+          ? existingPublished
+          : false,
+
         created_by: profile.id
       })
 
@@ -7263,9 +7318,14 @@ function ServantDailyReadings({ profile }) {
       return
     }
 
-    setMessage('Daily reading assigned successfully.')
+    setMessage(
+      existing
+        ? 'Daily reading updated successfully.'
+        : 'Daily reading assigned successfully. It is locked until you publish it.'
+    )
+
     clearForm()
-    await loadAssignments()
+    await loadAssignments(classId)
     setSaving(false)
   }
 
@@ -7275,7 +7335,11 @@ function ServantDailyReadings({ profile }) {
     setPassage(assignment.passage || '')
     setNotes(assignment.notes || '')
     setMessage('')
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    })
   }
 
   async function deleteAssignment(assignmentId) {
@@ -7297,7 +7361,7 @@ function ServantDailyReadings({ profile }) {
     }
 
     setMessage('Daily reading deleted.')
-    await loadAssignments()
+    await loadAssignments(classId)
   }
 
   async function togglePublished(assignment) {
@@ -7307,7 +7371,9 @@ function ServantDailyReadings({ profile }) {
 
     const { error } = await supabase
       .from('reading_assignments')
-      .update({ published: nextPublished })
+      .update({
+        published: nextPublished
+      })
       .eq('id', assignment.id)
       .eq('class_id', classId)
 
@@ -7322,26 +7388,36 @@ function ServantDailyReadings({ profile }) {
         : 'Daily reading unpublished successfully.'
     )
 
-    await loadAssignments()
+    await loadAssignments(classId)
   }
 
   const upcomingAssignments = assignments.filter(
-    (assignment) => assignment.reading_date >= today
+    (assignment) =>
+      assignment.reading_date >= today
   )
 
   const pastAssignments = assignments
     .filter(
-      (assignment) => assignment.reading_date < today
+      (assignment) =>
+        assignment.reading_date < today
     )
     .sort((a, b) =>
       b.reading_date.localeCompare(a.reading_date)
     )
 
+  const publishedCount = upcomingAssignments.filter(
+    (item) => item.published === true
+  ).length
+
+  const lockedCount = upcomingAssignments.filter(
+    (item) => item.published !== true
+  ).length
+
   return (
     <>
       <DashboardHeader
         title="Daily Readings"
-        subtitle={`${className} • Assign Bible readings to your students`}
+        subtitle={`${className} • Manage and publish Bible readings`}
       />
 
       {message && (
@@ -7352,12 +7428,12 @@ function ServantDailyReadings({ profile }) {
             borderRadius: '12px',
             background:
               message.includes('successfully') ||
-              message.includes('published')
+              message.includes('locked')
                 ? '#ecfdf3'
                 : '#fef3f2',
             color:
               message.includes('successfully') ||
-              message.includes('published')
+              message.includes('locked')
                 ? '#087257'
                 : '#b42318',
             fontWeight: '600'
@@ -7369,7 +7445,7 @@ function ServantDailyReadings({ profile }) {
 
       {loading ? (
         <section className="dashboard-card">
-          <p>Loading your class...</p>
+          <p>Loading your classes...</p>
         </section>
       ) : (
         <>
@@ -7377,6 +7453,87 @@ function ServantDailyReadings({ profile }) {
             className="dashboard-card"
             style={{ marginTop: '24px' }}
           >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '16px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  Managing Class
+                </h2>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Switch between any Bible Study classes assigned
+                  to you.
+                </p>
+              </div>
+
+              <select
+                value={classId}
+                onChange={(event) => {
+                  setClassId(event.target.value)
+                  setMessage('')
+                  clearForm()
+                }}
+                style={{
+                  minWidth: '240px',
+                  maxWidth: '100%',
+                  padding: '12px 14px',
+                  borderRadius: '12px',
+                  border: '1px solid #dfe2ea',
+                  background: 'white',
+                  fontWeight: '700'
+                }}
+              >
+                {assignedClasses.map((classItem) => (
+                  <option
+                    key={classItem.id}
+                    value={classItem.id}
+                  >
+                    {classItem.name}
+                    {classItem.grade_group
+                      ? ` • ${classItem.grade_group}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
+
+          <div className="stats-grid">
+            <StatCard
+              icon={<BookOpen />}
+              label="Upcoming Readings"
+              value={upcomingAssignments.length}
+              helper={className}
+            />
+
+            <StatCard
+              icon={<CheckCircle2 />}
+              label="Published"
+              value={publishedCount}
+              helper="Visible to students"
+            />
+
+            <StatCard
+              icon={<Clock />}
+              label="Locked"
+              value={lockedCount}
+              helper="Hidden from students"
+            />
+          </div>
+
+          <section className="dashboard-card">
             <h2>Assign a Reading</h2>
 
             <p
@@ -7386,8 +7543,8 @@ function ServantDailyReadings({ profile }) {
                 marginBottom: '22px'
               }}
             >
-              Assign one Bible reading per day. Saving the same
-              date again will update that day's assignment.
+              New readings begin locked. Publish them when you are
+              ready for students to see them.
             </p>
 
             <form onSubmit={saveAssignment}>
@@ -7401,6 +7558,7 @@ function ServantDailyReadings({ profile }) {
               >
                 <div>
                   <label>Reading Date</label>
+
                   <input
                     type="date"
                     value={readingDate}
@@ -7415,6 +7573,7 @@ function ServantDailyReadings({ profile }) {
 
                 <div>
                   <label>Title / Theme</label>
+
                   <input
                     type="text"
                     value={title}
@@ -7427,12 +7586,9 @@ function ServantDailyReadings({ profile }) {
                   />
                 </div>
 
-                <div
-                  style={{
-                    gridColumn: '1 / -1'
-                  }}
-                >
+                <div style={{ gridColumn: '1 / -1' }}>
                   <label>Bible Passage</label>
+
                   <input
                     type="text"
                     value={passage}
@@ -7446,12 +7602,9 @@ function ServantDailyReadings({ profile }) {
                   />
                 </div>
 
-                <div
-                  style={{
-                    gridColumn: '1 / -1'
-                  }}
-                >
+                <div style={{ gridColumn: '1 / -1' }}>
                   <label>Notes for Students</label>
+
                   <textarea
                     value={notes}
                     onChange={(event) =>
@@ -7483,15 +7636,46 @@ function ServantDailyReadings({ profile }) {
               >
                 {saving
                   ? 'Saving...'
-                  : 'Assign Daily Reading'}
+                  : 'Save Daily Reading'}
               </button>
             </form>
           </section>
 
           <section className="dashboard-card">
-            <h2>Upcoming Readings</h2>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: '5px' }}>
+                  Upcoming Readings
+                </h2>
 
-            <div className="table-wrapper">
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#6b7280'
+                  }}
+                >
+                  Locked readings are visible here to servants but
+                  hidden from students.
+                </p>
+              </div>
+
+              <strong style={{ color: '#6b35c0' }}>
+                {upcomingAssignments.length} total
+              </strong>
+            </div>
+
+            <div
+              className="table-wrapper"
+              style={{ marginTop: '18px' }}
+            >
               <table>
                 <thead>
                   <tr>
@@ -7508,26 +7692,38 @@ function ServantDailyReadings({ profile }) {
                   {upcomingAssignments.map(
                     (assignment) => (
                       <tr key={assignment.id}>
-                        <td>{assignment.reading_date}</td>
-                        <td>{assignment.title || '—'}</td>
+                        <td>
+                          {assignment.reading_date}
+                        </td>
+
+                        <td>
+                          {assignment.title || '—'}
+                        </td>
+
                         <td>
                           <strong>
                             {assignment.passage}
                           </strong>
                         </td>
-                        <td>{assignment.notes || '—'}</td>
+
+                        <td>
+                          {assignment.notes || '—'}
+                        </td>
+
                         <td>
                           <span
                             style={{
                               display: 'inline-block',
                               padding: '5px 9px',
                               borderRadius: '999px',
-                              background: assignment.published
-                                ? '#dcfaeb'
-                                : '#f3f0f7',
-                              color: assignment.published
-                                ? '#087257'
-                                : '#6b7280',
+                              background:
+                                assignment.published
+                                  ? '#dcfaeb'
+                                  : '#f3f0f7',
+                              color:
+                                assignment.published
+                                  ? '#087257'
+                                  : '#6b7280',
                               fontSize: '11px',
                               fontWeight: '800',
                               whiteSpace: 'nowrap'
@@ -7538,12 +7734,14 @@ function ServantDailyReadings({ profile }) {
                               : '🔒 UNPUBLISHED'}
                           </span>
                         </td>
+
                         <td>
                           <div
                             style={{
                               display: 'flex',
                               gap: '8px',
-                              justifyContent: 'flex-end',
+                              justifyContent:
+                                'flex-end',
                               alignItems: 'center',
                               flexWrap: 'wrap'
                             }}
@@ -7551,18 +7749,22 @@ function ServantDailyReadings({ profile }) {
                             <button
                               type="button"
                               onClick={() =>
-                                togglePublished(assignment)
+                                togglePublished(
+                                  assignment
+                                )
                               }
                               style={{
                                 border: 'none',
                                 borderRadius: '9px',
                                 padding: '7px 10px',
-                                background: assignment.published
-                                  ? '#fff1f0'
-                                  : '#ecfdf3',
-                                color: assignment.published
-                                  ? '#b42318'
-                                  : '#087257',
+                                background:
+                                  assignment.published
+                                    ? '#fff1f0'
+                                    : '#ecfdf3',
+                                color:
+                                  assignment.published
+                                    ? '#b42318'
+                                    : '#087257',
                                 fontWeight: '800',
                                 cursor: 'pointer',
                                 whiteSpace: 'nowrap'
@@ -7576,11 +7778,14 @@ function ServantDailyReadings({ profile }) {
                             <button
                               type="button"
                               onClick={() =>
-                                editAssignment(assignment)
+                                editAssignment(
+                                  assignment
+                                )
                               }
                               style={{
                                 border: 'none',
-                                background: 'transparent',
+                                background:
+                                  'transparent',
                                 color: '#6b35c0',
                                 fontWeight: '700',
                                 cursor: 'pointer'
@@ -7598,7 +7803,8 @@ function ServantDailyReadings({ profile }) {
                               }
                               style={{
                                 border: 'none',
-                                background: 'transparent',
+                                background:
+                                  'transparent',
                                 color: '#b42318',
                                 fontWeight: '700',
                                 cursor: 'pointer'
@@ -7614,8 +7820,9 @@ function ServantDailyReadings({ profile }) {
 
                   {!upcomingAssignments.length && (
                     <tr>
-                      <td colSpan="5">
-                        No upcoming readings assigned yet.
+                      <td colSpan="6">
+                        No upcoming readings assigned
+                        for {className} yet.
                       </td>
                     </tr>
                   )}
@@ -7634,35 +7841,36 @@ function ServantDailyReadings({ profile }) {
                     <th>Date</th>
                     <th>Title</th>
                     <th>Passage</th>
-                    <th></th>
+                    <th>Status</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {pastAssignments.map((assignment) => (
-                    <tr key={assignment.id}>
-                      <td>{assignment.reading_date}</td>
-                      <td>{assignment.title || '—'}</td>
-                      <td>{assignment.passage}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            editAssignment(assignment)
-                          }
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#6b35c0',
-                            fontWeight: '700',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Reuse / Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {pastAssignments.map(
+                    (assignment) => (
+                      <tr key={assignment.id}>
+                        <td>
+                          {assignment.reading_date}
+                        </td>
+
+                        <td>
+                          {assignment.title || '—'}
+                        </td>
+
+                        <td>
+                          <strong>
+                            {assignment.passage}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {assignment.published
+                            ? '🟢 Published'
+                            : '🔒 Unpublished'}
+                        </td>
+                      </tr>
+                    )
+                  )}
 
                   {!pastAssignments.length && (
                     <tr>
@@ -7680,7 +7888,6 @@ function ServantDailyReadings({ profile }) {
     </>
   )
 }
-
 
 
 function ServantWeeklyAssignments({ profile }) {
