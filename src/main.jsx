@@ -830,6 +830,7 @@ function StudentDashboard({ profile }) {
           .select('id, reading_date, passage, title')
           .eq('class_id', classId)
           .eq('reading_date', today)
+          .eq('published', true)
           .maybeSingle()
       ])
 
@@ -1622,6 +1623,7 @@ function StudentDailyReading({ profile }) {
         .select('id, reading_date, title, passage, notes')
         .eq('class_id', membership.class_id)
         .eq('reading_date', today)
+        .eq('published', true)
         .maybeSingle(),
 
       supabase
@@ -7201,7 +7203,7 @@ function ServantDailyReadings({ profile }) {
     const { data, error } = await supabase
       .from('reading_assignments')
       .select(
-        'id, class_id, reading_date, title, passage, notes, created_by, created_at'
+        'id, class_id, reading_date, title, passage, notes, published, created_by, created_at'
       )
       .eq('class_id', classId)
       .order('reading_date', { ascending: true })
@@ -7251,6 +7253,7 @@ function ServantDailyReadings({ profile }) {
         title: title.trim() || null,
         passage: passage.trim(),
         notes: notes.trim() || null,
+        published: false,
         created_by: profile.id
       })
 
@@ -7297,6 +7300,31 @@ function ServantDailyReadings({ profile }) {
     await loadAssignments()
   }
 
+  async function togglePublished(assignment) {
+    setMessage('')
+
+    const nextPublished = !assignment.published
+
+    const { error } = await supabase
+      .from('reading_assignments')
+      .update({ published: nextPublished })
+      .eq('id', assignment.id)
+      .eq('class_id', classId)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setMessage(
+      nextPublished
+        ? 'Daily reading published to students successfully.'
+        : 'Daily reading unpublished successfully.'
+    )
+
+    await loadAssignments()
+  }
+
   const upcomingAssignments = assignments.filter(
     (assignment) => assignment.reading_date >= today
   )
@@ -7322,12 +7350,16 @@ function ServantDailyReadings({ profile }) {
             marginTop: '20px',
             padding: '12px 14px',
             borderRadius: '12px',
-            background: message.includes('successfully')
-              ? '#ecfdf3'
-              : '#fef3f2',
-            color: message.includes('successfully')
-              ? '#087257'
-              : '#b42318',
+            background:
+              message.includes('successfully') ||
+              message.includes('published')
+                ? '#ecfdf3'
+                : '#fef3f2',
+            color:
+              message.includes('successfully') ||
+              message.includes('published')
+                ? '#087257'
+                : '#b42318',
             fontWeight: '600'
           }}
         >
@@ -7467,6 +7499,7 @@ function ServantDailyReadings({ profile }) {
                     <th>Title</th>
                     <th>Passage</th>
                     <th>Notes</th>
+                    <th>Status</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -7484,13 +7517,62 @@ function ServantDailyReadings({ profile }) {
                         </td>
                         <td>{assignment.notes || '—'}</td>
                         <td>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '5px 9px',
+                              borderRadius: '999px',
+                              background: assignment.published
+                                ? '#dcfaeb'
+                                : '#f3f0f7',
+                              color: assignment.published
+                                ? '#087257'
+                                : '#6b7280',
+                              fontSize: '11px',
+                              fontWeight: '800',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {assignment.published
+                              ? '🟢 PUBLISHED'
+                              : '🔒 UNPUBLISHED'}
+                          </span>
+                        </td>
+                        <td>
                           <div
                             style={{
                               display: 'flex',
                               gap: '8px',
-                              justifyContent: 'flex-end'
+                              justifyContent: 'flex-end',
+                              alignItems: 'center',
+                              flexWrap: 'wrap'
                             }}
                           >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                togglePublished(assignment)
+                              }
+                              style={{
+                                border: 'none',
+                                borderRadius: '9px',
+                                padding: '7px 10px',
+                                background: assignment.published
+                                  ? '#fff1f0'
+                                  : '#ecfdf3',
+                                color: assignment.published
+                                  ? '#b42318'
+                                  : '#087257',
+                                fontWeight: '800',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {assignment.published
+                                ? 'Unpublish'
+                                : 'Publish'}
+                            </button>
+
                             <button
                               type="button"
                               onClick={() =>
