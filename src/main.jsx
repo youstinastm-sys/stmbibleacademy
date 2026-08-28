@@ -758,7 +758,7 @@ function StudentDashboard({ profile, previewClassId = null }) {
     setMessage('')
 
     const studentId = profile.id
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateString()
 
     let membership = previewClassId
       ? { class_id: Number(previewClassId) }
@@ -1688,7 +1688,7 @@ function StudentMyProgress({ profile }) {
 
 
 function StudentDailyReading({ profile, previewClassId = null }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const emptyGems = {
     sin: '',
@@ -2451,7 +2451,7 @@ function StudentHomework({ profile, previewClassId = null }) {
 
   function isPastDue(quiz) {
     if (!quiz.due_date || submissionForQuiz(quiz.id)) return false
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateString()
     return quiz.due_date < today
   }
 
@@ -3331,7 +3331,7 @@ function StudentHomework({ profile, previewClassId = null }) {
 
 
 function StudentMemoryVerses({ profile, previewClassId = null }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const [classId, setClassId] = useState(null)
   const [assignments, setAssignments] = useState([])
@@ -5540,7 +5540,7 @@ function StudentProfile({ profile }) {
 
 
 function ServantDashboard({ profile }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const [classId, setClassId] = useState(null)
   const [className, setClassName] =
@@ -7288,7 +7288,7 @@ function ServantWeeklyManagement({ profile }) {
 }
 
 function ServantDailyReadings({ profile }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const [assignedClasses, setAssignedClasses] = useState([])
   const [classId, setClassId] = useState('')
@@ -8127,7 +8127,7 @@ function ServantDailyReadings({ profile }) {
 
 
 function ServantWeeklyAssignments({ profile }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const emptyQuestion = (type = 'multiple_choice') => ({
     question_type: type,
@@ -9512,7 +9512,7 @@ function ServantWeeklyAssignments({ profile }) {
 
 
 function ServantAttendance({ profile }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const [classId, setClassId] = useState(null)
   const [className, setClassName] = useState('My Bible Study Class')
@@ -12338,7 +12338,7 @@ function ServantProfile({ profile }) {
 
 
 function ServantQuickEntry({ profile }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString()
 
   const [classId, setClassId] = useState(null)
   const [className, setClassName] = useState('My Bible Study Class')
@@ -17509,6 +17509,14 @@ function ProgressCircle({
       </strong>
     </div>
   )
+}
+
+function localDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
 }
 
 function capitalize(value) {
