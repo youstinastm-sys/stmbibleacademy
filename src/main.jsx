@@ -7431,10 +7431,48 @@ function ServantDailyReadings({ profile }) {
       return
     }
 
-    // When editing, update the exact assignment by ID.
-    // Do not block the date change based on the currently loaded
-    // assignment list; the database will handle any real constraint.
+    // When editing, check the database for another row already
+    // using the target date in this class.
     if (editingAssignmentId) {
+      const { data: conflict, error: conflictError } = await supabase
+        .from('reading_assignments')
+        .select('id, reading_date, title, passage')
+        .eq('class_id', classId)
+        .eq('reading_date', readingDate)
+        .neq('id', editingAssignmentId)
+        .maybeSingle()
+
+      if (conflictError) {
+        setMessage(conflictError.message)
+        setSaving(false)
+        return
+      }
+
+      if (conflict) {
+        const replaceConfirmed = window.confirm(
+          `There is already a database reading on ${readingDate}: ` +
+          `${conflict.title || conflict.passage || 'Untitled reading'}. ` +
+          `Replace that reading with the one you are editing?`
+        )
+
+        if (!replaceConfirmed) {
+          setSaving(false)
+          return
+        }
+
+        const { error: removeConflictError } = await supabase
+          .from('reading_assignments')
+          .delete()
+          .eq('id', conflict.id)
+          .eq('class_id', classId)
+
+        if (removeConflictError) {
+          setMessage(removeConflictError.message)
+          setSaving(false)
+          return
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('reading_assignments')
         .update({
