@@ -7431,20 +7431,9 @@ function ServantDailyReadings({ profile }) {
       return
     }
 
-    const dateConflict = assignments.find(
-      (item) =>
-        item.reading_date === readingDate &&
-        String(item.id) !== String(editingAssignmentId || '')
-    )
-
-    if (dateConflict) {
-      setMessage(
-        'There is already a reading assigned for that date. Edit that reading or choose a different date.'
-      )
-      setSaving(false)
-      return
-    }
-
+    // When editing, update the exact assignment by ID.
+    // Do not block the date change based on the currently loaded
+    // assignment list; the database will handle any real constraint.
     if (editingAssignmentId) {
       const { error: updateError } = await supabase
         .from('reading_assignments')
